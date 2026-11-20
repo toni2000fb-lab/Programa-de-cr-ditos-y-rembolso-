@@ -21,6 +21,11 @@ de prueba y crea el presupuesto inicial (de forma idempotente).
 
 Para empezar desde cero (borra la base de datos): `docker compose down -v`.
 
+La base de datos también queda disponible en `localhost:5433` (sólo desde tu equipo), por si quieres
+conectarte con un cliente SQL o correr los tests fuera de Docker. Si ese puerto está ocupado, cambia el
+valor con la variable `DB_PORT` (por ejemplo `DB_PORT=5434 docker compose up`). No afecta a la app, que
+usa la red interna de Docker.
+
 ### Usuarios de prueba
 
 En la pantalla de inicio hay un **selector de usuarios**; no hacen falta contraseñas.
@@ -70,7 +75,7 @@ En local (Node 22):
 ```bash
 npm install
 docker compose up -d db
-DATABASE_URL="postgresql://creditos:creditos@localhost:5432/creditos_test" npm test
+DATABASE_URL="postgresql://creditos:creditos@localhost:5433/creditos_test" npm test
 ```
 
 La base `creditos_test` la crea el contenedor de Postgres al inicializarse

@@ -14,7 +14,9 @@ services:
       timeout: 3s
       retries: 30
     ports:
-      - "5432:5432"
+      # Sólo en localhost y en 5433 por defecto, para no chocar con un PostgreSQL local en 5432.
+      # La app y los tests usan la red interna de Docker (db:5432), así que no dependen de este puerto.
+      - "127.0.0.1:${DB_PORT:-5433}:5432"
 
   app:
     build:
