@@ -15,6 +15,7 @@ describe("Resiliencia ante el buró (reintentos con backoff exponencial)", () =>
     const { value, attempts } = await fetchBureauReport("ABC12345", {
       fetchImpl,
       baseUrl: "http://bureau.test",
+      token: "token-de-prueba",
       retry: { sleep: noSleep },
     });
     expect(value.score).toBe(700);
@@ -25,7 +26,12 @@ describe("Resiliencia ante el buró (reintentos con backoff exponencial)", () =>
   it("no reintenta errores 4xx (no transitorios)", async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response("", { status: 400 }));
     await expect(
-      fetchBureauReport("ABC12345", { fetchImpl, baseUrl: "http://bureau.test", retry: { sleep: noSleep } }),
+      fetchBureauReport("ABC12345", {
+        fetchImpl,
+        baseUrl: "http://bureau.test",
+        token: "token-de-prueba",
+        retry: { sleep: noSleep },
+      }),
     ).rejects.toThrow("HTTP 400");
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });

@@ -23,6 +23,15 @@ de prueba y crea el presupuesto inicial (de forma idempotente).
 
 Para empezar desde cero (borra la base de datos): `docker compose down -v`.
 
+Si el puerto 3000 de tu equipo está ocupado (`port is already allocated`), elige otro con `APP_PORT`.
+En PowerShell: `$env:APP_PORT=3001; docker compose up`. En bash: `APP_PORT=3001 docker compose up`. Después
+abre `http://localhost:3001`. También puedes dejar la variable en un archivo `.env` junto al compose.
+
+La base de datos también queda disponible en `localhost:5433` (sólo desde tu equipo), por si quieres
+conectarte con un cliente SQL o correr los tests fuera de Docker. Si ese puerto está ocupado, cambia el
+valor con la variable `DB_PORT` (por ejemplo `DB_PORT=5434 docker compose up`). No afecta a la app, que
+usa la red interna de Docker.
+
 ### Usuarios de prueba
 
 En la pantalla de inicio hay un **selector de usuarios**; no hacen falta contraseñas.
@@ -44,6 +53,21 @@ En la pantalla de inicio hay un **selector de usuarios**; no hacen falta contras
    "Rechazar" (motivo de al menos 15 caracteres).
 4. Abre **Auditoría** en otra pestaña: las transiciones aparecen en vivo.
 
+### Desarrollo local (la app fuera de Docker)
+
+Requisitos: Node 22 y una base PostgreSQL (la del compose sirve).
+
+```bash
+cp .env.example .env
+docker compose up -d db
+npm install
+npx prisma migrate deploy && npx prisma db seed
+npm run dev
+```
+
+Abre <http://localhost:3000>. `BUREAU_BASE_URL` debe apuntar al puerto donde corre la app, porque el
+buró simulado vive en la propia aplicación.
+
 ### Ejecutar los tests
 
 Con Docker (unitarios + integración contra PostgreSQL real):
@@ -57,7 +81,7 @@ En local (Node 22):
 ```bash
 npm install
 docker compose up -d db
-DATABASE_URL="postgresql://creditos:creditos@localhost:5432/creditos_test" npm test
+DATABASE_URL="postgresql://creditos:creditos@localhost:5433/creditos_test" npm test
 ```
 
 La base `creditos_test` la crea el contenedor de Postgres al inicializarse
@@ -71,6 +95,14 @@ La base `creditos_test` la crea el contenedor de Postgres al inicializarse
 | `tests/unit/amortization.test.ts` | Cuota fija con 1.5 % mensual y cuadre de capital y saldo. |
 | `tests/unit/retry.test.ts` | Reintentos ante 503, sin reintentos ante 4xx y backoff exponencial. |
 | `tests/unit/session.test.ts` | Rechazo de cookies de sesión manipuladas o expiradas. |
+| `tests/integration/routes.test.ts` | Permisos **en las rutas HTTP**: sin sesión 401, solicitante 403 en cada ruta de analista, analista 403 al crear, cookie manipulada o de usuario inexistente 401, visibilidad por solicitante e idempotencia de la aprobación por HTTP. |
+| `tests/integration/idempotency.test.ts` | Las claves de idempotencia de más de 24 h se limpian solas y las recientes se conservan. |
+| `tests/unit/bureau-retry.test.ts` | Cuándo el analista puede relanzar el buró: fallido o atascado más de 60 s, nunca completado ni en solicitudes resueltas. |
+| `tests/unit/bureau-route.test.ts` | El buró simulado exige su credencial: 401 sin token o con uno incorrecto. |
+
+Calidad estática: `npm run typecheck` y `npm run lint`. El workflow de GitHub Actions
+(`.github/workflows/ci.yml`) ejecuta typecheck, lint y toda la suite contra un PostgreSQL real en cada
+push y pull request.
 
 ---
 
@@ -116,7 +148,8 @@ Además hay un `CHECK (available_cents >= 0)` en la BD como última línea de de
 `POST /approve` y `POST /reject` exigen la cabecera `Idempotency-Key`. La respuesta se guarda en la
 misma transacción que el cambio de estado. Si se repite la clave, se devuelve la respuesta original
 (cabecera `Idempotent-Replayed: true`) sin volver a ejecutar nada. La interfaz genera una clave por
-cada intención de decisión y deshabilita el botón mientras la petición está en curso.
+cada intención de decisión y deshabilita el botón mientras la petición está en curso. Las claves se
+conservan 24 h y se limpian solas al completar una decisión, así la tabla no crece sin límite.
 
 ### Regla de historial de 30 días y concurrencia al crear
 La creación toma un `pg_advisory_xact_lock` por documento, así que dos envíos simultáneos del mismo
@@ -124,14 +157,18 @@ documento no pueden saltarse la regla.
 
 ### Buró crediticio simulado y resiliencia
 - `GET /api/bureau/:documento` simula el servicio externo: latencia de 2 a 4 s y alrededor de 30 % de
-  respuestas `503`. El puntaje es determinista por documento.
+  respuestas `503`. El puntaje es determinista por documento. Como servicio externo exige su propia
+  credencial en la cabecera `x-internal-token`: se deriva de `SESSION_SECRET` (o se fija con
+  `BUREAU_API_TOKEN`) y el cliente de la app la envía sola. Sin ella responde `401` al instante.
 - El cliente (`fetchBureauReport`) hace hasta **5 intentos** con **backoff exponencial**
   (0.5 s, 1 s, 2 s, 4 s, con jitter del 30 %) y un timeout de 6 s por intento. Sólo reintenta
   errores transitorios (5xx, 429, red y timeout), nunca un 4xx.
 - Al crear la solicitud, la consulta se ejecuta **después de responder** (`after()` de Next.js), así
   que el usuario no espera. La interfaz muestra el estado (`Consultando…`, puntaje o
   `No disponible`) y consulta periódicamente. Si se agotan los reintentos, el analista puede pulsar
-  "Reintentar buró".
+  "Reintentar buró". El mismo botón aparece si una consulta lleva más de 60 s sin avanzar (por ejemplo,
+  si el servidor se reinició a mitad de la consulta), y el servidor aplica el mismo umbral para no
+  duplicar consultas que sí están en curso.
 - **Aprobar exige una consulta de buró completada.** Rechazar no la exige.
 
 ### Roles y seguridad
@@ -189,7 +226,7 @@ de la petición en la API. La regla de historial se consulta en vivo al escribir
 | POST | `/api/requests/:id/bureau` | Analista | Volver a consultar el buró |
 | GET | `/api/budget` | Analista | Presupuesto global |
 | GET | `/api/audit` · `/api/audit/stream` | Analista | Auditoría (listado / SSE) |
-| GET | `/api/bureau/:documentId` | — | Buró simulado (servicio "externo") |
+| GET | `/api/bureau/:documentId` | token interno | Buró simulado (servicio "externo"), cabecera `x-internal-token` |
 
 Los errores siguen el formato `{ "error": { "code", "message", "details" } }` con su código HTTP
 (400 validación, 401, 403, 404, 409 conflictos de negocio, 422 clave de idempotencia reutilizada).
@@ -198,3 +235,20 @@ Los errores siguen el formato `{ "error": { "code", "message", "details" } }` co
 
 Ver `.env.example`. `docker-compose.yml` ya trae valores para desarrollo. Para cualquier despliegue
 real, define `SESSION_SECRET`.
+
+| Variable | Obligatoria | Descripción |
+|---|---|---|
+| `DATABASE_URL` | Sí | Conexión a PostgreSQL. |
+| `SESSION_SECRET` | Sí | Clave (mínimo 16 caracteres) con la que se firma la cookie de sesión. |
+| `BUREAU_BASE_URL` | Sí | URL desde la que la app consulta su propio buró simulado. |
+| `COOKIE_SECURE` | No | Con `true` la cookie de sesión lleva el atributo `Secure`. Actívala siempre que se sirva por HTTPS. |
+| `BUREAU_API_TOKEN` | No | Credencial del buró (mínimo 16 caracteres). Si falta, se deriva de `SESSION_SECRET`. |
+
+## Limitaciones conocidas
+
+- La auditoría en vivo consulta la base de datos cada 1.5 s por cada panel abierto. Con muchos
+  analistas conectados convendría `LISTEN/NOTIFY` de PostgreSQL.
+- El contenedor de la app se ejecuta como root; para producción habría que añadir un usuario sin
+  privilegios en el Dockerfile.
+- El lint no se ejecuta durante `docker build` (se hace en `npm run lint` y en el CI) para que la
+  imagen no dependa de él.

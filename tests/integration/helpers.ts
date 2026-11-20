@@ -7,11 +7,12 @@ import { startReview } from "@/server/services/workflow";
 export const db = new PrismaClient();
 
 export const solicitante: Actor = { id: "t-sol", name: "Sol Test", role: "SOLICITANTE" };
+export const solicitante2: Actor = { id: "t-sol-2", name: "Sol Dos", role: "SOLICITANTE" };
 export const analista: Actor = { id: "t-ana", name: "Ana Test", role: "ANALISTA" };
 export const analista2: Actor = { id: "t-ana-2", name: "Otro Analista", role: "ANALISTA" };
 
 export async function seedActors() {
-  for (const a of [solicitante, analista, analista2]) {
+  for (const a of [solicitante, solicitante2, analista, analista2]) {
     await db.user.upsert({ where: { id: a.id }, update: {}, create: a });
   }
 }

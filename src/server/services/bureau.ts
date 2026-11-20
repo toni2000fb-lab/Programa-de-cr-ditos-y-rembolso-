@@ -1,7 +1,9 @@
 import type { Db } from "@/server/db";
 import { DomainError } from "@/domain/errors";
 import { withRetry, RetryExhaustedError, type RetryOptions } from "@/lib/retry";
+import { BUREAU_STALE_MS } from "@/domain/rules";
 import { serializeRequest } from "./workflow";
+import { BUREAU_TOKEN_HEADER, bureauToken } from "./bureau-auth";
 
 // ---------------------------------------------------------------------------
 // Simulador del servicio externo (usado por GET /api/bureau/[documentId])
@@ -75,6 +77,8 @@ export interface BureauClientDeps {
   baseUrl?: string;
   retry?: Partial<RetryOptions>;
   attemptTimeoutMs?: number;
+  /** Token interno para el servicio de buró (por defecto, el derivado de la configuración). */
+  token?: string;
 }
 
 export async function fetchBureauReport(documentId: string, deps: BureauClientDeps = {}) {
@@ -82,10 +86,15 @@ export async function fetchBureauReport(documentId: string, deps: BureauClientDe
   const baseUrl = deps.baseUrl ?? process.env.BUREAU_BASE_URL ?? "http://127.0.0.1:3000";
   const timeout = deps.attemptTimeoutMs ?? BUREAU_ATTEMPT_TIMEOUT_MS;
   const url = `${baseUrl}/api/bureau/${encodeURIComponent(documentId)}`;
+  const token = deps.token ?? bureauToken();
 
   return withRetry<BureauReport>(
     async () => {
-      const res = await fetchImpl(url, { signal: AbortSignal.timeout(timeout), cache: "no-store" });
+      const res = await fetchImpl(url, {
+        signal: AbortSignal.timeout(timeout),
+        cache: "no-store",
+        headers: { [BUREAU_TOKEN_HEADER]: token },
+      });
       if (!res.ok) throw new BureauHttpError(res.status);
       return (await res.json()) as BureauReport;
     },
@@ -100,8 +109,6 @@ export async function fetchBureauReport(documentId: string, deps: BureauClientDe
     },
   );
 }
-
-const STALE_CHECK_MS = 60_000;
 
 /**
  * Consulta el buró para una solicitud y persiste el resultado. Marca la solicitud como
@@ -119,7 +126,7 @@ export async function runBureauCheck(db: Db, requestId: string, deps: BureauClie
       id: requestId,
       OR: [
         { bureauStatus: { not: "CONSULTANDO" } },
-        { updatedAt: { lt: new Date(Date.now() - STALE_CHECK_MS) } },
+        { updatedAt: { lt: new Date(Date.now() - BUREAU_STALE_MS) } },
       ],
     },
     data: { bureauStatus: "CONSULTANDO", bureauError: null },
