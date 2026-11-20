@@ -1,5 +1,7 @@
 # Sistema de Aprobación de Créditos y Desembolsos
 
+Autor: Anthony Ramirez
+
 Aplicación full-stack para registrar solicitudes de crédito, consultar un buró crediticio simulado
 (lento e inestable), y que un analista las revise, apruebe o rechace contra un presupuesto global
 de **$50,000.00 USD**, con auditoría inmutable en tiempo real.
