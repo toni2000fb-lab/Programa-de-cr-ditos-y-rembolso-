@@ -1,0 +1,110 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SOLICITANTE
+  ANALISTA
+}
+
+enum RequestStatus {
+  CREADA
+  EN_REVISION
+  APROBADA
+  RECHAZADA
+}
+
+enum BureauStatus {
+  NO_CONSULTADO
+  CONSULTANDO
+  COMPLETADO
+  FALLIDO
+}
+
+model User {
+  id        String   @id
+  name      String
+  role      Role
+  createdAt DateTime @default(now()) @map("created_at")
+
+  requests  CreditRequest[]
+  auditLogs AuditLog[]
+
+  @@map("users")
+}
+
+/// Los importes se guardan en centavos (enteros) para evitar errores de coma flotante.
+model CreditRequest {
+  id                 String        @id @default(uuid()) @db.Uuid
+  applicantName      String        @map("applicant_name")
+  documentId         String        @map("document_id")
+  monthlyIncomeCents Int           @map("monthly_income_cents")
+  amountCents        Int           @map("amount_cents")
+  termMonths         Int           @map("term_months")
+  status             RequestStatus @default(CREADA)
+  rejectionReason    String?       @map("rejection_reason")
+  decidedAt          DateTime?     @map("decided_at")
+
+  bureauStatus    BureauStatus @default(NO_CONSULTADO) @map("bureau_status")
+  bureauScore     Int?         @map("bureau_score")
+  bureauAttempts  Int          @default(0) @map("bureau_attempts")
+  bureauCheckedAt DateTime?    @map("bureau_checked_at")
+  bureauError     String?      @map("bureau_error")
+
+  createdById String   @map("created_by_id")
+  createdBy   User     @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  auditLogs AuditLog[]
+
+  @@index([documentId, createdAt])
+  @@index([createdById])
+  @@map("credit_requests")
+}
+
+/// Registro inmutable: un trigger en la BD rechaza UPDATE y DELETE.
+model AuditLog {
+  id         Int            @id @default(autoincrement())
+  requestId  String         @map("request_id") @db.Uuid
+  request    CreditRequest  @relation(fields: [requestId], references: [id])
+  actorId    String         @map("actor_id")
+  actor      User           @relation(fields: [actorId], references: [id])
+  actorRole  Role           @map("actor_role")
+  fromStatus RequestStatus? @map("from_status")
+  toStatus   RequestStatus  @map("to_status")
+  comment    String?
+  createdAt  DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([requestId])
+  @@map("audit_logs")
+}
+
+/// Fila única (id = 1) con el presupuesto global disponible.
+model Budget {
+  id             Int      @id
+  initialCents   Int      @map("initial_cents")
+  availableCents Int      @map("available_cents")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@map("budget")
+}
+
+/// Respuestas guardadas por clave de idempotencia (aprobar / rechazar).
+model IdempotencyKey {
+  key        String   @id
+  userId     String   @map("user_id")
+  action     String
+  requestId  String   @map("request_id") @db.Uuid
+  statusCode Int      @map("status_code")
+  response   Json
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("idempotency_keys")
+}

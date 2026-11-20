@@ -1,0 +1,36 @@
+{
+  "name": "sistema-creditos",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start -H 0.0.0.0 -p 3000",
+    "typecheck": "tsc --noEmit",
+    "db:migrate": "prisma migrate deploy",
+    "db:seed": "prisma db seed",
+    "test": "vitest run",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "6.19.3",
+    "next": "15.5.29",
+    "prisma": "6.19.3",
+    "react": "19.1.10",
+    "react-dom": "19.1.10",
+    "server-only": "0.0.1",
+    "tsx": "4.20.6",
+    "zod": "4.1.13"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.1",
+    "@types/react": "19.1.17",
+    "@types/react-dom": "19.1.11",
+    "typescript": "5.9.3",
+    "vitest": "3.2.7"
+  }
+}
