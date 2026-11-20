@@ -30,7 +30,9 @@ services:
       db:
         condition: service_healthy
     ports:
-      - "3000:3000"
+      # Puerto del equipo configurable con APP_PORT si el 3000 está ocupado. Dentro del contenedor la app
+      # sigue en 3000, por eso BUREAU_BASE_URL no cambia.
+      - "${APP_PORT:-3000}:3000"
 
   # Ejecuta toda la suite (unitarios + integración contra PostgreSQL real):
   #   docker compose run --rm tests

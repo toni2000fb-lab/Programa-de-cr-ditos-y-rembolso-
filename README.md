@@ -21,6 +21,10 @@ de prueba y crea el presupuesto inicial (de forma idempotente).
 
 Para empezar desde cero (borra la base de datos): `docker compose down -v`.
 
+Si el puerto 3000 de tu equipo está ocupado (`port is already allocated`), elige otro con `APP_PORT`.
+En PowerShell: `$env:APP_PORT=3001; docker compose up`. En bash: `APP_PORT=3001 docker compose up`. Después
+abre `http://localhost:3001`. También puedes dejar la variable en un archivo `.env` junto al compose.
+
 La base de datos también queda disponible en `localhost:5433` (sólo desde tu equipo), por si quieres
 conectarte con un cliente SQL o correr los tests fuera de Docker. Si ese puerto está ocupado, cambia el
 valor con la variable `DB_PORT` (por ejemplo `DB_PORT=5434 docker compose up`). No afecta a la app, que
