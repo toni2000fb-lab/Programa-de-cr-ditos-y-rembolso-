@@ -17,6 +17,16 @@ export interface IdempotentResult<T> {
   replayed: boolean;
 }
 
+/** Las claves se conservan 24 h: cubre reintentos y dobles clics, y evita que la tabla crezca sin límite. */
+export const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
+
+export async function pruneExpiredKeys(db: Db, now: Date = new Date()): Promise<number> {
+  const { count } = await db.idempotencyKey.deleteMany({
+    where: { createdAt: { lt: new Date(now.getTime() - IDEMPOTENCY_TTL_MS) } },
+  });
+  return count;
+}
+
 async function findStored<T>(db: Db, scope: IdempotencyScope): Promise<IdempotentResult<T> | null> {
   const stored = await db.idempotencyKey.findUnique({ where: { key: scope.key } });
   if (!stored) return null;
@@ -54,6 +64,8 @@ export async function runIdempotent<T extends Prisma.InputJsonValue>(
       },
       { maxWait: 10_000, timeout: 20_000 },
     );
+    // Mantenimiento oportunista: una falla aquí nunca debe afectar a una decisión ya confirmada.
+    await pruneExpiredKeys(db).catch((e) => console.warn("[idempotencia] no se pudo limpiar", e));
     return { statusCode: 200, body, replayed: false };
   } catch (error) {
     // Otra petición con la misma clave pudo completarse mientras esperábamos.

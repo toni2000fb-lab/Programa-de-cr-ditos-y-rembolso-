@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { formatUSD } from "@/domain/money";
+import { canRetryBureau } from "@/domain/bureau";
 import { MIN_REJECTION_REASON_LENGTH } from "@/domain/rules";
 import { REQUEST_STATUSES, STATUS_LABEL, type RequestStatusValue } from "@/domain/stateMachine";
 import { apiFetch, errorMessage } from "./api";
@@ -79,7 +80,7 @@ function RequestActions({ r, onDone }: { r: RequestDTO; onDone: () => void }) {
 
   const base = `/api/requests/${r.id}`;
   const reasonOk = reason.trim().length >= MIN_REJECTION_REASON_LENGTH;
-  const bureauBusy = r.bureauStatus === "CONSULTANDO" || r.bureauStatus === "NO_CONSULTADO";
+  const showBureauRetry = canRetryBureau(r);
 
   return (
     <div className="actions">
@@ -103,8 +104,12 @@ function RequestActions({ r, onDone }: { r: RequestDTO; onDone: () => void }) {
           </button>
         </>
       )}
-      {(r.status === "CREADA" || r.status === "EN_REVISION") && r.bureauStatus === "FALLIDO" && (
-        <button onClick={() => run("bureau", `${base}/bureau`, {})} disabled={!!busy || bureauBusy}>
+      {showBureauRetry && (
+        <button
+          onClick={() => run("bureau", `${base}/bureau`, {})}
+          disabled={!!busy}
+          title={r.bureauStatus === "FALLIDO" ? undefined : "La consulta lleva demasiado tiempo sin avanzar"}
+        >
           {busy === "bureau" ? (
             <>
               <span className="spinner" aria-hidden /> Consultando…

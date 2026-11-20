@@ -9,6 +9,8 @@ export const MONTHLY_INTEREST_RATE = 0.015;
 export const HISTORY_WINDOW_DAYS = 30;
 export const MIN_REJECTION_REASON_LENGTH = 15;
 export const INITIAL_BUDGET_CENTS = 5_000_000; // $50,000.00
+/** Una consulta de buró sin avanzar durante este tiempo se considera atascada y puede relanzarse. */
+export const BUREAU_STALE_MS = 60_000;
 
 const MAX_MONEY = 10_000_000; // tope razonable para evitar desbordes ($10M)
 
