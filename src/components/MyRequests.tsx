@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { formatUSD } from "@/domain/money";
+import { formatMoney } from "@/domain/money";
 import { apiFetch, errorMessage } from "./api";
 import { BureauCell, StatusBadge } from "./StatusBadge";
 import type { RequestDTO } from "./types";
@@ -64,7 +64,7 @@ export function MyRequests({ refreshKey }: { refreshKey: number }) {
                   <td>{new Date(r.createdAt).toLocaleString("es")}</td>
                   <td>{r.applicantName}</td>
                   <td>{r.documentId}</td>
-                  <td>{formatUSD(r.amountCents)}</td>
+                  <td>{formatMoney(r.amountCents)}</td>
                   <td>{r.termMonths} m</td>
                   <td>
                     <BureauCell status={r.bureauStatus} score={r.bureauScore} error={r.bureauError} attempts={r.bureauAttempts} />

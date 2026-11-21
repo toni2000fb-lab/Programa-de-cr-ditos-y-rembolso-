@@ -1,5 +1,5 @@
 import { buildAmortizationSchedule } from "@/domain/amortization";
-import { formatUSD } from "@/domain/money";
+import { formatMoney } from "@/domain/money";
 import { MONTHLY_INTEREST_RATE } from "@/domain/rules";
 
 export function AmortizationTable({ principalCents, termMonths }: { principalCents: number; termMonths: number }) {
@@ -11,7 +11,7 @@ export function AmortizationTable({ principalCents, termMonths }: { principalCen
       <div className="summary">
         <div>
           <span className="label">Capital</span>
-          <strong>{formatUSD(principalCents)}</strong>
+          <strong>{formatMoney(principalCents)}</strong>
         </div>
         <div>
           <span className="label">Interés fijo mensual</span>
@@ -19,11 +19,11 @@ export function AmortizationTable({ principalCents, termMonths }: { principalCen
         </div>
         <div>
           <span className="label">Cuota mensual estimada</span>
-          <strong className="accent">{formatUSD(schedule.monthlyPaymentCents)}</strong>
+          <strong className="accent">{formatMoney(schedule.monthlyPaymentCents)}</strong>
         </div>
         <div>
           <span className="label">Total intereses</span>
-          <strong>{formatUSD(schedule.totalInterestCents)}</strong>
+          <strong>{formatMoney(schedule.totalInterestCents)}</strong>
         </div>
       </div>
       <div className="table-scroll">
@@ -41,10 +41,10 @@ export function AmortizationTable({ principalCents, termMonths }: { principalCen
             {schedule.rows.map((r) => (
               <tr key={r.month}>
                 <td>{r.month}</td>
-                <td>{formatUSD(r.paymentCents)}</td>
-                <td>{formatUSD(r.interestCents)}</td>
-                <td>{formatUSD(r.principalCents)}</td>
-                <td>{formatUSD(r.balanceCents)}</td>
+                <td>{formatMoney(r.paymentCents)}</td>
+                <td>{formatMoney(r.interestCents)}</td>
+                <td>{formatMoney(r.principalCents)}</td>
+                <td>{formatMoney(r.balanceCents)}</td>
               </tr>
             ))}
           </tbody>

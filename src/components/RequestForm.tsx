@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ALLOWED_TERMS, createRequestSchema, maxAllowedAmountCents } from "@/domain/rules";
-import { formatUSD, toCents } from "@/domain/money";
+import { formatMoney, toCents } from "@/domain/money";
 import { AmortizationTable } from "./AmortizationTable";
 import { apiFetch, errorMessage } from "./api";
 
@@ -118,7 +118,7 @@ export function RequestForm({ onCreated }: { onCreated: () => void }) {
           {eligibility.state === "blocked" && <span className="field-error">{eligibility.reason}</span>}
         </label>
         <label>
-          Ingreso mensual declarado (USD)
+          Ingreso mensual declarado (GTQ)
           <input
             inputMode="decimal"
             value={values.monthlyIncome}
@@ -128,10 +128,10 @@ export function RequestForm({ onCreated }: { onCreated: () => void }) {
           {show("monthlyIncome") && <span className="field-error">{show("monthlyIncome")}</span>}
         </label>
         <label>
-          Monto solicitado (USD)
+          Monto solicitado (GTQ)
           <input inputMode="decimal" value={values.amount} onChange={set("amount")} onBlur={blur("amount")} />
           {incomeCents > 0 && (
-            <span className="hint">Máximo permitido (40% del ingreso): {formatUSD(maxAllowedAmountCents(incomeCents))}</span>
+            <span className="hint">Máximo permitido (40% del ingreso): {formatMoney(maxAllowedAmountCents(incomeCents))}</span>
           )}
           {(touched.amount || values.amount !== "") && errors.amount && (
             <span className="field-error">{errors.amount}</span>

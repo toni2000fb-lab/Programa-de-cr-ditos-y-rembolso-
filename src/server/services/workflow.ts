@@ -3,7 +3,7 @@ import type { Db } from "@/server/db";
 import { DomainError } from "@/domain/errors";
 import { canTransition, isFinal, STATUS_LABEL } from "@/domain/stateMachine";
 import { rejectSchema } from "@/domain/rules";
-import { formatUSD } from "@/domain/money";
+import { formatMoney } from "@/domain/money";
 import type { Actor } from "./types";
 import { recordTransition } from "./audit";
 import { BUDGET_ID } from "./budget";
@@ -127,7 +127,7 @@ export async function approveRequest(db: Db, actor: Actor, id: string, opts: Dec
       const budget = await tx.budget.findUnique({ where: { id: BUDGET_ID } });
       throw new DomainError(
         "INSUFFICIENT_BUDGET",
-        `Presupuesto insuficiente: disponible ${formatUSD(budget?.availableCents ?? 0)}, solicitado ${formatUSD(approved.amountCents)}`,
+        `Presupuesto insuficiente: disponible ${formatMoney(budget?.availableCents ?? 0)}, solicitado ${formatMoney(approved.amountCents)}`,
       );
     }
     const budget = await tx.budget.findUniqueOrThrow({ where: { id: BUDGET_ID } });
@@ -137,7 +137,7 @@ export async function approveRequest(db: Db, actor: Actor, id: string, opts: Dec
       actor,
       fromStatus: "EN_REVISION",
       toStatus: "APROBADA",
-      comment: opts.comment?.trim() || `Aprobada por ${formatUSD(approved.amountCents)}`,
+      comment: opts.comment?.trim() || `Aprobada por ${formatMoney(approved.amountCents)}`,
     });
     return { request: serializeRequest(approved), budget: { availableCents: budget.availableCents } };
   });
