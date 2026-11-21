@@ -2,7 +2,14 @@ import { describe, expect, it } from "vitest";
 import { createRequestSchema, exceedsDebtLimit, rejectSchema } from "@/domain/rules";
 import { canTransition } from "@/domain/stateMachine";
 
-const valid = { applicantName: "Ana Torres", documentId: "abc12345", monthlyIncome: 3000, amount: 1200, termMonths: 12 };
+const valid = {
+  applicantName: "Ana Torres",
+  documentId: "abc12345",
+  employmentTenure: "DE_1_A_3_ANIOS",
+  monthlyIncome: 3000,
+  amount: 1200,
+  termMonths: 12,
+};
 
 describe("Regla del 40% de endeudamiento", () => {
   it("acepta exactamente el 40% y rechaza un centavo más", () => {
@@ -17,11 +24,33 @@ describe("Regla del 40% de endeudamiento", () => {
     expect(r.error?.issues[0]?.message).toContain("40%");
   });
 
+  it("el mensaje del límite muestra el máximo en quetzales", () => {
+    const r = createRequestSchema.safeParse({ ...valid, amount: 1200.01 });
+    expect(r.error?.issues[0]?.message).toContain("máximo Q1,200.00");
+    expect(r.error?.issues[0]?.message).not.toContain("$");
+  });
+
   it("normaliza el documento y valida los plazos permitidos", () => {
     const ok = createRequestSchema.parse(valid);
     expect(ok.documentId).toBe("ABC12345");
     for (const term of [6, 12, 24, 36]) expect(createRequestSchema.safeParse({ ...valid, termMonths: term }).success).toBe(true);
     expect(createRequestSchema.safeParse({ ...valid, termMonths: 18 }).success).toBe(false);
+  });
+});
+
+describe("Antigüedad laboral", () => {
+  it("es obligatoria y solo admite las tres opciones", () => {
+    const { employmentTenure: _omit, ...without } = valid;
+    void _omit;
+    for (const bad of [without, { ...valid, employmentTenure: "" }, { ...valid, employmentTenure: "5_ANIOS" }, { ...valid, employmentTenure: null }]) {
+      const r = createRequestSchema.safeParse(bad);
+      expect(r.success, JSON.stringify(bad)).toBe(false);
+      expect(r.error?.issues[0]?.path).toEqual(["employmentTenure"]);
+      expect(r.error?.issues[0]?.message).toBe("Indica cuánto tiempo lleva en su trabajo actual");
+    }
+    for (const t of ["MENOS_DE_1_ANIO", "DE_1_A_3_ANIOS", "TRES_ANIOS_O_MAS"]) {
+      expect(createRequestSchema.safeParse({ ...valid, employmentTenure: t }).success).toBe(true);
+    }
   });
 });
 

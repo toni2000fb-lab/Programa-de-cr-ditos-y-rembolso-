@@ -1,7 +1,8 @@
 "use client";
 
 import { useId } from "react";
-import { SORT_OPTIONS, type SortKey, type StatusFilter } from "@/domain/requestView";
+import { PRIORITIES, PRIORITY_LABEL } from "@/domain/priority";
+import { SORT_OPTIONS, type PriorityFilter, type SortKey, type StatusFilter } from "@/domain/requestView";
 import { REQUEST_STATUSES, STATUS_LABEL, type RequestStatusValue } from "@/domain/stateMachine";
 
 /**
@@ -41,6 +42,7 @@ export function StatusKpiCards({
 
 export interface RequestToolbarProps {
   status: StatusFilter;
+  priority: PriorityFilter;
   query: string;
   sort: SortKey;
   shown: number;
@@ -49,6 +51,7 @@ export interface RequestToolbarProps {
   urgentCount: number;
   filtersActive: boolean;
   onStatus: (status: StatusFilter) => void;
+  onPriority: (priority: PriorityFilter) => void;
   onQuery: (query: string) => void;
   onSort: (sort: SortKey) => void;
   onUrgentOnly: (urgentOnly: boolean) => void;
@@ -58,7 +61,7 @@ export interface RequestToolbarProps {
 /** Buscador, selector de estado y selector de orden de la lista de solicitudes. */
 export function RequestToolbar(props: RequestToolbarProps) {
   const id = useId();
-  const { status, query, sort, shown, total, urgentOnly, urgentCount, filtersActive } = props;
+  const { status, priority, query, sort, shown, total, urgentOnly, urgentCount, filtersActive } = props;
   return (
     <>
       <div className="toolbar" role="search">
@@ -84,6 +87,23 @@ export function RequestToolbar(props: RequestToolbarProps) {
             {REQUEST_STATUSES.map((s) => (
               <option key={s} value={s}>
                 {STATUS_LABEL[s]}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="field">
+          <label className="label" htmlFor={`${id}-priority`}>
+            Prioridad
+          </label>
+          <select
+            id={`${id}-priority`}
+            value={priority}
+            onChange={(e) => props.onPriority(e.target.value as PriorityFilter)}
+          >
+            <option value="TODAS">Todas</option>
+            {PRIORITIES.map((p) => (
+              <option key={p} value={p}>
+                {PRIORITY_LABEL[p]}
               </option>
             ))}
           </select>

@@ -83,6 +83,7 @@ export async function createCreditRequest(
         monthlyIncomeCents: toCents(input.monthlyIncome),
         amountCents: toCents(input.amount),
         termMonths: input.termMonths,
+        employmentTenure: input.employmentTenure,
         createdById: actor.id,
         createdAt: now,
       },

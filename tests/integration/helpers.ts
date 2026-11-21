@@ -34,6 +34,7 @@ export async function requestInReview(amount: number, documentId = uniqueDoc()) 
   const created = await createCreditRequest(db, solicitante, {
     applicantName: "Cliente Prueba",
     documentId,
+    employmentTenure: "TRES_ANIOS_O_MAS",
     monthlyIncome: amount * 3,
     amount,
     termMonths: 12,
