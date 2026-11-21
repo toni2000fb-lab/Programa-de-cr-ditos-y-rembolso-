@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { formatMoney } from "./money";
+import { EMPLOYMENT_TENURES } from "./priority";
 
 /** Reglas de negocio compartidas por frontend y backend. */
 export const ALLOWED_TERMS = [6, 12, 24, 36] as const;
@@ -8,11 +10,11 @@ export const MAX_DEBT_RATIO = 0.4;
 export const MONTHLY_INTEREST_RATE = 0.015;
 export const HISTORY_WINDOW_DAYS = 30;
 export const MIN_REJECTION_REASON_LENGTH = 15;
-export const INITIAL_BUDGET_CENTS = 5_000_000; // $50,000.00
+export const INITIAL_BUDGET_CENTS = 5_000_000; // Q50,000.00
 /** Una consulta de buró sin avanzar durante este tiempo se considera atascada y puede relanzarse. */
 export const BUREAU_STALE_MS = 60_000;
 
-const MAX_MONEY = 10_000_000; // tope razonable para evitar desbordes ($10M)
+const MAX_MONEY = 10_000_000; // tope razonable para evitar desbordes (10 millones)
 
 /** Regla del 40%: el monto solicitado no puede superar el 40% del ingreso mensual. */
 export function exceedsDebtLimit(amountCents: number, monthlyIncomeCents: number): boolean {
@@ -34,7 +36,7 @@ const money = (label: string) =>
       error: `${label} admite como máximo 2 decimales`,
     });
 
-/** Esquema de creación (importes en dólares, tal como los introduce el usuario). */
+/** Esquema de creación (importes en quetzales, tal como los introduce el usuario). */
 export const createRequestSchema = z
   .object({
     applicantName: z
@@ -51,6 +53,9 @@ export const createRequestSchema = z
       .transform((v) => v.toUpperCase()),
     monthlyIncome: money("El ingreso mensual"),
     amount: money("El monto solicitado"),
+    employmentTenure: z.enum(EMPLOYMENT_TENURES, {
+      error: "Indica cuánto tiempo lleva en su trabajo actual",
+    }),
     termMonths: z
       .number({ error: "El plazo es obligatorio" })
       .refine((v): v is TermMonths => (ALLOWED_TERMS as readonly number[]).includes(v), {
@@ -64,9 +69,9 @@ export const createRequestSchema = z
       ctx.addIssue({
         code: "custom",
         path: ["amount"],
-        message: `El monto solicitado no puede superar el 40% del ingreso mensual declarado (máximo $${(
-          maxAllowedAmountCents(incomeCents) / 100
-        ).toFixed(2)})`,
+        message: `El monto solicitado no puede superar el 40% del ingreso mensual declarado (máximo ${formatMoney(
+          maxAllowedAmountCents(incomeCents),
+        )})`,
       });
     }
   });

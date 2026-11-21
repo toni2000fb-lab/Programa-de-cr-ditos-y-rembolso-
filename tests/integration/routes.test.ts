@@ -136,6 +136,7 @@ describe("Visibilidad de solicitudes por HTTP", () => {
       post("/api/requests", {
         applicantName: "Cliente Rutas",
         documentId: uniqueDoc(),
+        employmentTenure: "DE_1_A_3_ANIOS",
         monthlyIncome: 3000,
         amount: 1000,
         termMonths: 12,
@@ -240,5 +241,57 @@ describe("Marca de urgente por HTTP", () => {
     const res = await markUrgent(post(`/api/requests/${id}/urgent`, { urgent: true }), ctx(id));
     expect(res.status).toBe(409);
     expect(await errorCode(res)).toBe("INVALID_TRANSITION");
+  });
+});
+
+describe("Antigüedad laboral al crear la solicitud", () => {
+  const body = (extra: Record<string, unknown> = {}) => ({
+    applicantName: "Cliente Antigüedad",
+    documentId: uniqueDoc(),
+    employmentTenure: "TRES_ANIOS_O_MAS",
+    monthlyIncome: 3000,
+    amount: 1000,
+    termMonths: 12,
+    ...extra,
+  });
+
+  it("se guarda y se devuelve la antigüedad declarada", async () => {
+    asUser(solicitante);
+    const res = await createRequest(post("/api/requests", body()));
+    expect(res.status).toBe(201);
+    const { request } = (await res.json()) as { request: { id: string; employmentTenure: string } };
+    expect(request.employmentTenure).toBe("TRES_ANIOS_O_MAS");
+    expect((await db.creditRequest.findUniqueOrThrow({ where: { id: request.id } })).employmentTenure).toBe(
+      "TRES_ANIOS_O_MAS",
+    );
+  });
+
+  it("sin antigüedad o con un valor que no existe responde 400", async () => {
+    asUser(solicitante);
+    const { employmentTenure: _omit, ...without } = body();
+    void _omit;
+    for (const payload of [without, body({ employmentTenure: "MUCHO" }), body({ employmentTenure: null })]) {
+      const res = await createRequest(post("/api/requests", payload));
+      expect(res.status, JSON.stringify(payload)).toBe(400);
+      expect(await errorCode(res)).toBe("VALIDATION");
+    }
+  });
+
+  it("una solicitud anterior sin este dato se lista con la antigüedad en nulo", async () => {
+    const legacy = await db.creditRequest.create({
+      data: {
+        applicantName: "Cliente Anterior",
+        documentId: uniqueDoc(),
+        monthlyIncomeCents: 300_000,
+        amountCents: 100_000,
+        termMonths: 12,
+        createdById: solicitante.id,
+      },
+    });
+    asUser(analista);
+    const { requests } = (await (await listRequests()).json()) as {
+      requests: { id: string; employmentTenure: string | null }[];
+    };
+    expect(requests.find((r) => r.id === legacy.id)?.employmentTenure).toBeNull();
   });
 });

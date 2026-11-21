@@ -20,6 +20,13 @@ enum RequestStatus {
   RECHAZADA
 }
 
+/// Tiempo en el trabajo actual, declarado por el solicitante. De aquí sale la prioridad (src/domain/priority.ts).
+enum EmploymentTenure {
+  MENOS_DE_1_ANIO
+  DE_1_A_3_ANIOS
+  TRES_ANIOS_O_MAS
+}
+
 enum BureauStatus {
   NO_CONSULTADO
   CONSULTANDO
@@ -47,6 +54,8 @@ model CreditRequest {
   monthlyIncomeCents Int           @map("monthly_income_cents")
   amountCents        Int           @map("amount_cents")
   termMonths         Int           @map("term_months")
+  /// Nulo en solicitudes anteriores a que existiera este dato. La API lo exige al crear.
+  employmentTenure   EmploymentTenure? @map("employment_tenure")
   status             RequestStatus @default(CREADA)
   rejectionReason    String?       @map("rejection_reason")
   decidedAt          DateTime?     @map("decided_at")

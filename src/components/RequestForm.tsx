@@ -1,14 +1,22 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { EMPLOYMENT_TENURES, TENURE_LABEL } from "@/domain/priority";
 import { ALLOWED_TERMS, createRequestSchema, maxAllowedAmountCents } from "@/domain/rules";
 import { formatMoney, toCents } from "@/domain/money";
 import { AmortizationTable } from "./AmortizationTable";
 import { apiFetch, errorMessage } from "./api";
 
-type Field = "applicantName" | "documentId" | "monthlyIncome" | "amount" | "termMonths";
+type Field = "applicantName" | "documentId" | "employmentTenure" | "monthlyIncome" | "amount" | "termMonths";
 
-const EMPTY = { applicantName: "", documentId: "", monthlyIncome: "", amount: "", termMonths: "12" };
+const EMPTY = {
+  applicantName: "",
+  documentId: "",
+  employmentTenure: "",
+  monthlyIncome: "",
+  amount: "",
+  termMonths: "12",
+};
 
 function toNumber(v: string): number {
   return v.trim() === "" ? Number.NaN : Number(v.replace(",", "."));
@@ -28,6 +36,7 @@ export function RequestForm({ onCreated }: { onCreated: () => void }) {
     () => ({
       applicantName: values.applicantName,
       documentId: values.documentId,
+      employmentTenure: values.employmentTenure === "" ? undefined : values.employmentTenure,
       monthlyIncome: toNumber(values.monthlyIncome),
       amount: toNumber(values.amount),
       termMonths: Number(values.termMonths),
@@ -84,7 +93,14 @@ export function RequestForm({ onCreated }: { onCreated: () => void }) {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    setTouched({ applicantName: true, documentId: true, monthlyIncome: true, amount: true, termMonths: true });
+    setTouched({
+      applicantName: true,
+      documentId: true,
+      employmentTenure: true,
+      monthlyIncome: true,
+      amount: true,
+      termMonths: true,
+    });
     if (!canSubmit) return;
     setSubmitting(true);
     setServerError(null);
@@ -116,6 +132,23 @@ export function RequestForm({ onCreated }: { onCreated: () => void }) {
           {show("documentId") && <span className="field-error">{show("documentId")}</span>}
           {eligibility.state === "checking" && <span className="hint">Verificando historial…</span>}
           {eligibility.state === "blocked" && <span className="field-error">{eligibility.reason}</span>}
+        </label>
+        <label>
+          Tiempo en su trabajo actual
+          <select
+            value={values.employmentTenure}
+            onChange={set("employmentTenure")}
+            onBlur={blur("employmentTenure")}
+          >
+            <option value="">Selecciona una opción</option>
+            {EMPLOYMENT_TENURES.map((t) => (
+              <option key={t} value={t}>
+                {TENURE_LABEL[t]}
+              </option>
+            ))}
+          </select>
+          <span className="hint">Debe poder respaldarse con una constancia laboral.</span>
+          {show("employmentTenure") && <span className="field-error">{show("employmentTenure")}</span>}
         </label>
         <label>
           Ingreso mensual declarado (GTQ)

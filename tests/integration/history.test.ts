@@ -10,6 +10,7 @@ afterAll(() => db.$disconnect());
 const input = (documentId: string) => ({
   applicantName: "Cliente Historial",
   documentId,
+  employmentTenure: "DE_1_A_3_ANIOS",
   monthlyIncome: 5000,
   amount: 1000,
   termMonths: 24,

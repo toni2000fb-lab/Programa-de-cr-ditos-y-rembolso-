@@ -1,11 +1,21 @@
+import { priorityFromTenure, priorityRank, type EmploymentTenureValue, type Priority } from "./priority";
 import type { RequestStatusValue } from "./stateMachine";
 import { PENDING_STATUSES, REQUEST_STATUSES } from "./stateMachine";
 
 /** Lógica pura (sin React) para filtrar, buscar y ordenar la lista de solicitudes del analista. */
 
 export type StatusFilter = RequestStatusValue | "TODAS";
+export type PriorityFilter = Priority | "TODAS";
 
-export type SortKey = "FECHA_DESC" | "FECHA_ASC" | "MONTO_DESC" | "MONTO_ASC" | "NOMBRE_ASC" | "NOMBRE_DESC";
+export type SortKey =
+  | "FECHA_DESC"
+  | "FECHA_ASC"
+  | "MONTO_DESC"
+  | "MONTO_ASC"
+  | "NOMBRE_ASC"
+  | "NOMBRE_DESC"
+  | "PRIORIDAD_DESC"
+  | "PRIORIDAD_ASC";
 
 export const DEFAULT_SORT: SortKey = "FECHA_DESC";
 
@@ -16,6 +26,8 @@ export const SORT_OPTIONS: { value: SortKey; label: string }[] = [
   { value: "MONTO_ASC", label: "Monto: de menor a mayor" },
   { value: "NOMBRE_ASC", label: "Nombre: de A a Z" },
   { value: "NOMBRE_DESC", label: "Nombre: de Z a A" },
+  { value: "PRIORIDAD_DESC", label: "Prioridad: de alta a baja" },
+  { value: "PRIORIDAD_ASC", label: "Prioridad: de baja a alta" },
 ];
 
 export interface ViewableRequest {
@@ -25,12 +37,15 @@ export interface ViewableRequest {
   documentId: string;
   amountCents: number;
   createdAt: string;
+  /** Antigüedad laboral declarada. De ella sale la prioridad. Puede ser nula en solicitudes viejas. */
+  employmentTenure?: EmploymentTenureValue | null;
   /** Marca interna del analista. Puede venir sin definir si quien consulta no es analista. */
   urgent?: boolean;
 }
 
 export interface ViewOptions {
   status: StatusFilter;
+  priority: PriorityFilter;
   query: string;
   sort: SortKey;
   /** Mostrar solo las solicitudes urgentes. */
@@ -63,6 +78,9 @@ const byName = (a: ViewableRequest, b: ViewableRequest) =>
 const byDate = (a: ViewableRequest, b: ViewableRequest) => Date.parse(a.createdAt) - Date.parse(b.createdAt);
 const byAmount = (a: ViewableRequest, b: ViewableRequest) => a.amountCents - b.amountCents;
 
+const byPriority = (a: ViewableRequest, b: ViewableRequest) =>
+  priorityRank(priorityFromTenure(a.employmentTenure)) - priorityRank(priorityFromTenure(b.employmentTenure));
+
 const COMPARATORS: Record<SortKey, (a: ViewableRequest, b: ViewableRequest) => number> = {
   FECHA_DESC: (a, b) => byDate(b, a),
   FECHA_ASC: byDate,
@@ -70,6 +88,9 @@ const COMPARATORS: Record<SortKey, (a: ViewableRequest, b: ViewableRequest) => n
   MONTO_ASC: byAmount,
   NOMBRE_ASC: byName,
   NOMBRE_DESC: (a, b) => byName(b, a),
+  // Con la misma prioridad atiende primero la que lleva más tiempo esperando.
+  PRIORIDAD_DESC: (a, b) => byPriority(b, a) || byDate(a, b),
+  PRIORIDAD_ASC: (a, b) => byPriority(a, b) || byDate(a, b),
 };
 
 /** Las urgentes van siempre primero; dentro de cada grupo manda el orden elegido. */
@@ -82,6 +103,7 @@ export function filterAndSort<T extends ViewableRequest>(requests: readonly T[],
     .filter(
       (r) =>
         (options.status === "TODAS" || r.status === options.status) &&
+        (options.priority === "TODAS" || priorityFromTenure(r.employmentTenure) === options.priority) &&
         (!options.urgentOnly || isUrgent(r)) &&
         matchesQuery(r, options.query),
     )
@@ -99,5 +121,11 @@ export function countByStatus(requests: readonly ViewableRequest[]): Record<Requ
 }
 
 export function hasActiveFilters(options: ViewOptions): boolean {
-  return options.status !== "TODAS" || options.query.trim() !== "" || options.sort !== DEFAULT_SORT || options.urgentOnly;
+  return (
+    options.status !== "TODAS" ||
+    options.priority !== "TODAS" ||
+    options.query.trim() !== "" ||
+    options.sort !== DEFAULT_SORT ||
+    options.urgentOnly
+  );
 }
