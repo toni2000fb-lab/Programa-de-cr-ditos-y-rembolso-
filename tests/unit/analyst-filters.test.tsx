@@ -27,7 +27,7 @@ function dto(id: string, o: Partial<RequestDTO>): RequestDTO {
   } as RequestDTO;
 }
 
-const requests: RequestDTO[] = [
+const baseRequests: RequestDTO[] = [
   dto("r1", { applicantName: "Ana López", amountCents: 500_000, createdAt: "2026-11-03T09:00:00.000Z", status: "APROBADA" }),
   dto("r2", { applicantName: "Bruno Pérez", amountCents: 150_000, createdAt: "2026-11-01T09:00:00.000Z", status: "EN_REVISION" }),
   dto("r3", { applicantName: "Álvaro Zúñiga", amountCents: 900_000, createdAt: "2026-11-02T09:00:00.000Z", status: "CREADA" }),
@@ -38,14 +38,27 @@ const requests: RequestDTO[] = [
 const json = (body: unknown) =>
   new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
 
+// Lo que "responde el servidor": se copia en cada prueba para poder marcar solicitudes sin afectar a las demás.
+let requests: RequestDTO[];
+const posts: { url: string; body: { urgent?: boolean } }[] = [];
+
 beforeEach(() => {
+  requests = baseRequests.map((r) => ({ ...r }));
+  posts.length = 0;
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (url: string) =>
-      url.startsWith("/api/budget")
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        const body = JSON.parse(String(init.body)) as { urgent?: boolean };
+        posts.push({ url, body });
+        const target = requests.find((r) => url === `/api/requests/${r.id}/urgent`);
+        if (target) target.urgent = body.urgent;
+        return json({ request: target });
+      }
+      return url.startsWith("/api/budget")
         ? json({ initialCents: 5_000_000, availableCents: 4_200_000, committedCents: 800_000, updatedAt: "2026-11-05T09:00:00.000Z" })
-        : json({ requests }),
-    ),
+        : json({ requests });
+    }),
   );
 });
 
@@ -165,5 +178,79 @@ describe("Panel del analista: filtros, búsqueda y orden", () => {
     const row = screen.getByText("Bruno Pérez").closest("tr") as HTMLElement;
     expect(within(row).getByRole("button", { name: "Aprobar" })).toBeTruthy();
     expect(within(row).getByRole("button", { name: "Rechazar" })).toBeTruthy();
+  });
+});
+
+describe("Panel del analista: marca de urgente", () => {
+  const rowOf = (name: string) => screen.getByText(name).closest("tr") as HTMLElement;
+  const urgentBadges = (container: HTMLElement) => container.querySelectorAll(".badge-urgente").length;
+  const toggle = () => screen.getByRole("button", { name: /^Solo urgentes\s*\d+$/ });
+
+  // Bruno (en revisión) y Álvaro (creada) urgentes. Ana ya está aprobada: su marca vieja no cuenta.
+  const markSome = () => {
+    for (const id of ["r1", "r2", "r3"]) requests.find((r) => r.id === id)!.urgent = true;
+  };
+
+  it("muestra la etiqueta y pone las urgentes primero, y una resuelta ya no cuenta", async () => {
+    markSome();
+    const { container } = await renderLoaded();
+    expect(urgentBadges(container)).toBe(2);
+    expect(within(rowOf("Álvaro Zúñiga")).getByText("Urgente")).toBeTruthy();
+    expect(within(rowOf("Ana López")).queryByText("Urgente")).toBeNull();
+    expect(names(container)).toEqual(["Álvaro Zúñiga", "Bruno Pérez", "Diego Pérez", "Carla Díaz", "Ana López"]);
+    expect(toggle().textContent).toContain("2");
+  });
+
+  it("las urgentes siguen primero al cambiar el orden", async () => {
+    markSome();
+    const { container } = await renderLoaded();
+    fireEvent.change(screen.getByLabelText("Ordenar por"), { target: { value: "MONTO_ASC" } });
+    expect(names(container).slice(0, 2)).toEqual(["Bruno Pérez", "Álvaro Zúñiga"]);
+  });
+
+  it("'Solo urgentes' filtra, se combina con el estado y 'Limpiar filtros' lo apaga", async () => {
+    markSome();
+    const { container } = await renderLoaded();
+    fireEvent.click(toggle());
+    expect(toggle().getAttribute("aria-pressed")).toBe("true");
+    expect(names(container)).toEqual(["Álvaro Zúñiga", "Bruno Pérez"]);
+
+    fireEvent.click(card("En revisión"));
+    expect(names(container)).toEqual(["Bruno Pérez"]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Limpiar filtros" }));
+    expect(toggle().getAttribute("aria-pressed")).toBe("false");
+    expect(names(container)).toHaveLength(5);
+  });
+
+  it("el botón 'Marcar urgente' avisa al servidor y la solicitud pasa a verse como urgente", async () => {
+    const { container } = await renderLoaded();
+    expect(urgentBadges(container)).toBe(0);
+
+    fireEvent.click(within(rowOf("Bruno Pérez")).getByRole("button", { name: "Marcar urgente" }));
+
+    await waitFor(() => expect(urgentBadges(container)).toBe(1));
+    expect(posts).toEqual([{ url: "/api/requests/r2/urgent", body: { urgent: true } }]);
+    expect(names(container)[0]).toBe("Bruno Pérez");
+    expect(within(rowOf("Bruno Pérez")).getByRole("button", { name: "Quitar urgente" })).toBeTruthy();
+    expect(toggle().textContent).toContain("1");
+  });
+
+  it("el botón 'Quitar urgente' desmarca la solicitud", async () => {
+    markSome();
+    const { container } = await renderLoaded();
+    fireEvent.click(within(rowOf("Álvaro Zúñiga")).getByRole("button", { name: "Quitar urgente" }));
+
+    await waitFor(() => expect(urgentBadges(container)).toBe(1));
+    expect(posts).toEqual([{ url: "/api/requests/r3/urgent", body: { urgent: false } }]);
+  });
+
+  it("las solicitudes resueltas no tienen botón de urgente", async () => {
+    markSome();
+    await renderLoaded();
+    for (const name of ["Ana López", "Carla Díaz"]) {
+      const row = rowOf(name);
+      expect(within(row).queryByRole("button", { name: /urgente/i })).toBeNull();
+    }
   });
 });

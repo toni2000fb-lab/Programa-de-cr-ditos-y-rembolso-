@@ -51,6 +51,9 @@ model CreditRequest {
   rejectionReason    String?       @map("rejection_reason")
   decidedAt          DateTime?     @map("decided_at")
 
+  /// Marca interna del analista para atender antes. Solo aplica a solicitudes abiertas y no la ve el solicitante.
+  urgent Boolean @default(false)
+
   bureauStatus    BureauStatus @default(NO_CONSULTADO) @map("bureau_status")
   bureauScore     Int?         @map("bureau_score")
   bureauAttempts  Int          @default(0) @map("bureau_attempts")

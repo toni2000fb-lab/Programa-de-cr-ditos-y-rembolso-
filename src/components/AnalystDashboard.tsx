@@ -4,11 +4,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatMoney } from "@/domain/money";
 import { canRetryBureau } from "@/domain/bureau";
 import { MIN_REJECTION_REASON_LENGTH } from "@/domain/rules";
+import { PENDING_STATUSES } from "@/domain/stateMachine";
 import {
   countByStatus,
+  countUrgent,
   DEFAULT_SORT,
   filterAndSort,
   hasActiveFilters,
+  isUrgent,
   type SortKey,
   type StatusFilter,
 } from "@/domain/requestView";
@@ -51,7 +54,7 @@ function BudgetCard({ refreshKey }: { refreshKey: number }) {
   );
 }
 
-type Busy = "review" | "approve" | "reject" | "bureau";
+type Busy = "review" | "approve" | "reject" | "bureau" | "urgent";
 
 function RequestActions({ r, onDone }: { r: RequestDTO; onDone: () => void }) {
   const [busy, setBusy] = useState<Busy | null>(null);
@@ -112,6 +115,16 @@ function RequestActions({ r, onDone }: { r: RequestDTO; onDone: () => void }) {
           </button>
         </>
       )}
+      {PENDING_STATUSES.includes(r.status) && (
+        <button
+          className={r.urgent ? "urgent on" : "urgent"}
+          onClick={() => run("urgent", `${base}/urgent`, { urgent: !r.urgent })}
+          disabled={!!busy}
+          title={r.urgent ? "Quitar la marca de urgente" : "Marcar para atender primero"}
+        >
+          {busy === "urgent" ? "Guardando…" : r.urgent ? "Quitar urgente" : "Marcar urgente"}
+        </button>
+      )}
       {showBureauRetry && (
         <button
           onClick={() => run("bureau", `${base}/bureau`, {})}
@@ -160,20 +173,23 @@ export function AnalystDashboard() {
   const [status, setStatus] = useState<StatusFilter>("TODAS");
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey>(DEFAULT_SORT);
+  const [urgentOnly, setUrgentOnly] = useState(false);
   const onDone = useCallback(() => {
     void reload();
     setRefreshKey((k) => k + 1);
   }, [reload]);
 
   const all = useMemo(() => requests ?? [], [requests]);
-  const view = useMemo(() => ({ status, query, sort }), [status, query, sort]);
+  const view = useMemo(() => ({ status, query, sort, urgentOnly }), [status, query, sort, urgentOnly]);
   const visible = useMemo(() => filterAndSort(all, view), [all, view]);
   const counts = useMemo(() => countByStatus(all), [all]);
+  const urgentCount = useMemo(() => countUrgent(all), [all]);
   const filtersActive = hasActiveFilters(view);
   const clearFilters = () => {
     setStatus("TODAS");
     setQuery("");
     setSort(DEFAULT_SORT);
+    setUrgentOnly(false);
   };
 
   return (
@@ -190,10 +206,13 @@ export function AnalystDashboard() {
           sort={sort}
           shown={visible.length}
           total={all.length}
+          urgentOnly={urgentOnly}
+          urgentCount={urgentCount}
           filtersActive={filtersActive}
           onStatus={setStatus}
           onQuery={setQuery}
           onSort={setSort}
+          onUrgentOnly={setUrgentOnly}
           onClear={clearFilters}
         />
         {error && <p className="alert error">{error}</p>}
@@ -221,7 +240,7 @@ export function AnalystDashboard() {
               </thead>
               <tbody>
                 {visible.map((r) => (
-                  <tr key={r.id}>
+                  <tr key={r.id} className={isUrgent(r) ? "row-urgent" : undefined}>
                     <td>{new Date(r.createdAt).toLocaleString("es-GT")}</td>
                     <td>{r.applicantName}</td>
                     <td>{r.documentId}</td>
@@ -233,6 +252,7 @@ export function AnalystDashboard() {
                     </td>
                     <td>
                       <StatusBadge status={r.status} />
+                      {isUrgent(r) && <span className="badge badge-urgente">Urgente</span>}
                       {r.rejectionReason && <div className="reason">Motivo: {r.rejectionReason}</div>}
                     </td>
                     <td>

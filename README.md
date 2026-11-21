@@ -52,7 +52,8 @@ En la pantalla de inicio hay un **selector de usuarios**; no hacen falta contras
 3. Entra como **Carla**: "Tomar en revisión" → "Aprobar" (el monto se descuenta del presupuesto) o
    "Rechazar" (motivo de al menos 15 caracteres).
    En la lista puedes pulsar las tarjetas de estado para filtrar, buscar por nombre, documento o ID,
-   y ordenar por fecha, monto o nombre.
+   y ordenar por fecha, monto o nombre. Con "Marcar urgente" una solicitud abierta aparece primero y
+   con su etiqueta, y el botón "Solo urgentes" deja únicamente esas.
 4. Abre **Auditoría** en otra pestaña: las transiciones aparecen en vivo.
 
 ### Desarrollo local (la app fuera de Docker)
@@ -215,6 +216,10 @@ de la petición en la API. La regla de historial se consulta en vivo al escribir
   Guatemala, la interfaz y los mensajes muestran quetzales. No hay conversión, el presupuesto sigue
   siendo el mismo número (`Q50,000.00`). Para volver a dólares basta con cambiar `CURRENCY_CODE`,
   `CURRENCY_SYMBOL` y `formatMoney` en `src/domain/money.ts`, y las etiquetas `(GTQ)` del formulario.
+- **Marca de urgente**: es una herramienta interna del analista para atender antes a un cliente
+  importante. Solo se puede cambiar mientras la solicitud está abierta (`CREADA` o `EN_REVISION`), el
+  solicitante no la ve y no cambia ninguna regla: el 40 %, los 30 días, el buró y el presupuesto se
+  aplican igual. Cada cambio queda en la auditoría con el mismo estado como anterior y nuevo.
 - **"Tomar en revisión"** es una acción explícita del analista (`CREADA → EN_REVISION`) y queda
   auditada como cualquier otra transición.
 
@@ -230,6 +235,7 @@ de la petición en la API. La regla de historial se consulta en vivo al escribir
 | POST | `/api/requests/:id/approve` | Analista | Aprobar (requiere `Idempotency-Key`) |
 | POST | `/api/requests/:id/reject` | Analista | Rechazar con `{ reason }` (requiere `Idempotency-Key`) |
 | POST | `/api/requests/:id/bureau` | Analista | Volver a consultar el buró |
+| POST | `/api/requests/:id/urgent` | Analista | Marcar o quitar la marca de urgente con `{ urgent: true }` |
 | GET | `/api/budget` | Analista | Presupuesto global |
 | GET | `/api/audit` · `/api/audit/stream` | Analista | Auditoría (listado / SSE) |
 | GET | `/api/bureau/:documentId` | token interno | Buró simulado (servicio "externo"), cabecera `x-internal-token` |
