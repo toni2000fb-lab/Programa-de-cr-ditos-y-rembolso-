@@ -1,12 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { formatUSD } from "@/domain/money";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { formatMoney } from "@/domain/money";
 import { canRetryBureau } from "@/domain/bureau";
 import { MIN_REJECTION_REASON_LENGTH } from "@/domain/rules";
-import { REQUEST_STATUSES, STATUS_LABEL, type RequestStatusValue } from "@/domain/stateMachine";
+import { PENDING_STATUSES } from "@/domain/stateMachine";
+import {
+  countByStatus,
+  countUrgent,
+  DEFAULT_SORT,
+  filterAndSort,
+  hasActiveFilters,
+  isUrgent,
+  type SortKey,
+  type StatusFilter,
+} from "@/domain/requestView";
 import { apiFetch, errorMessage } from "./api";
 import { usePolledRequests } from "./MyRequests";
+import { RequestToolbar, StatusKpiCards } from "./RequestFilters";
 import { BureauCell, StatusBadge } from "./StatusBadge";
 import type { BudgetDTO, RequestDTO } from "./types";
 
@@ -30,20 +41,20 @@ function BudgetCard({ refreshKey }: { refreshKey: number }) {
   return (
     <section className="card budget">
       <span className="label">Presupuesto global disponible</span>
-      <strong className="big">{budget ? formatUSD(budget.availableCents) : "—"}</strong>
+      <strong className="big">{budget ? formatMoney(budget.availableCents) : "—"}</strong>
       <div className="bar" aria-hidden>
         <div style={{ width: `${pct}%` }} />
       </div>
       {budget && (
         <span className="muted">
-          Comprometido {formatUSD(budget.committedCents)} de {formatUSD(budget.initialCents)}
+          Comprometido {formatMoney(budget.committedCents)} de {formatMoney(budget.initialCents)}
         </span>
       )}
     </section>
   );
 }
 
-type Busy = "review" | "approve" | "reject" | "bureau";
+type Busy = "review" | "approve" | "reject" | "bureau" | "urgent";
 
 function RequestActions({ r, onDone }: { r: RequestDTO; onDone: () => void }) {
   const [busy, setBusy] = useState<Busy | null>(null);
@@ -104,6 +115,16 @@ function RequestActions({ r, onDone }: { r: RequestDTO; onDone: () => void }) {
           </button>
         </>
       )}
+      {PENDING_STATUSES.includes(r.status) && (
+        <button
+          className={r.urgent ? "urgent on" : "urgent"}
+          onClick={() => run("urgent", `${base}/urgent`, { urgent: !r.urgent })}
+          disabled={!!busy}
+          title={r.urgent ? "Quitar la marca de urgente" : "Marcar para atender primero"}
+        >
+          {busy === "urgent" ? "Guardando…" : r.urgent ? "Quitar urgente" : "Marcar urgente"}
+        </button>
+      )}
       {showBureauRetry && (
         <button
           onClick={() => run("bureau", `${base}/bureau`, {})}
@@ -149,45 +170,58 @@ function RequestActions({ r, onDone }: { r: RequestDTO; onDone: () => void }) {
 export function AnalystDashboard() {
   const [refreshKey, setRefreshKey] = useState(0);
   const { requests, error, reload } = usePolledRequests(refreshKey);
-  const [filter, setFilter] = useState<RequestStatusValue | "TODAS">("TODAS");
+  const [status, setStatus] = useState<StatusFilter>("TODAS");
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<SortKey>(DEFAULT_SORT);
+  const [urgentOnly, setUrgentOnly] = useState(false);
   const onDone = useCallback(() => {
     void reload();
     setRefreshKey((k) => k + 1);
   }, [reload]);
 
-  const visible = (requests ?? []).filter((r) => filter === "TODAS" || r.status === filter);
-  const counts = Object.fromEntries(
-    REQUEST_STATUSES.map((s) => [s, (requests ?? []).filter((r) => r.status === s).length]),
-  ) as Record<RequestStatusValue, number>;
+  const all = useMemo(() => requests ?? [], [requests]);
+  const view = useMemo(() => ({ status, query, sort, urgentOnly }), [status, query, sort, urgentOnly]);
+  const visible = useMemo(() => filterAndSort(all, view), [all, view]);
+  const counts = useMemo(() => countByStatus(all), [all]);
+  const urgentCount = useMemo(() => countUrgent(all), [all]);
+  const filtersActive = hasActiveFilters(view);
+  const clearFilters = () => {
+    setStatus("TODAS");
+    setQuery("");
+    setSort(DEFAULT_SORT);
+    setUrgentOnly(false);
+  };
 
   return (
     <div className="stack">
       <div className="kpis">
         <BudgetCard refreshKey={refreshKey} />
-        {REQUEST_STATUSES.map((s) => (
-          <section key={s} className="card kpi">
-            <span className="label">{STATUS_LABEL[s]}</span>
-            <strong className="big">{counts[s]}</strong>
-          </section>
-        ))}
+        <StatusKpiCards counts={counts} active={status} onSelect={setStatus} />
       </div>
       <section className="card">
-        <div className="row between">
-          <h2>Solicitudes</h2>
-          <select value={filter} onChange={(e) => setFilter(e.target.value as RequestStatusValue | "TODAS")}>
-            <option value="TODAS">Todas</option>
-            {REQUEST_STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {STATUS_LABEL[s]}
-              </option>
-            ))}
-          </select>
-        </div>
+        <h2>Solicitudes</h2>
+        <RequestToolbar
+          status={status}
+          query={query}
+          sort={sort}
+          shown={visible.length}
+          total={all.length}
+          urgentOnly={urgentOnly}
+          urgentCount={urgentCount}
+          filtersActive={filtersActive}
+          onStatus={setStatus}
+          onQuery={setQuery}
+          onSort={setSort}
+          onUrgentOnly={setUrgentOnly}
+          onClear={clearFilters}
+        />
         {error && <p className="alert error">{error}</p>}
         {requests === null ? (
           <p className="muted">Cargando…</p>
-        ) : visible.length === 0 ? (
+        ) : all.length === 0 ? (
           <p className="muted">No hay solicitudes.</p>
+        ) : visible.length === 0 ? (
+          <p className="muted">Ninguna solicitud coincide con los filtros.</p>
         ) : (
           <div className="table-scroll">
             <table>
@@ -206,18 +240,19 @@ export function AnalystDashboard() {
               </thead>
               <tbody>
                 {visible.map((r) => (
-                  <tr key={r.id}>
-                    <td>{new Date(r.createdAt).toLocaleString("es")}</td>
+                  <tr key={r.id} className={isUrgent(r) ? "row-urgent" : undefined}>
+                    <td>{new Date(r.createdAt).toLocaleString("es-GT")}</td>
                     <td>{r.applicantName}</td>
                     <td>{r.documentId}</td>
-                    <td>{formatUSD(r.monthlyIncomeCents)}</td>
-                    <td>{formatUSD(r.amountCents)}</td>
+                    <td>{formatMoney(r.monthlyIncomeCents)}</td>
+                    <td>{formatMoney(r.amountCents)}</td>
                     <td>{r.termMonths} m</td>
                     <td>
                       <BureauCell status={r.bureauStatus} score={r.bureauScore} error={r.bureauError} attempts={r.bureauAttempts} />
                     </td>
                     <td>
                       <StatusBadge status={r.status} />
+                      {isUrgent(r) && <span className="badge badge-urgente">Urgente</span>}
                       {r.rejectionReason && <div className="reason">Motivo: {r.rejectionReason}</div>}
                     </td>
                     <td>

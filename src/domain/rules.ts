@@ -90,3 +90,7 @@ export const approveSchema = z.object({
 export const reviewSchema = z.object({
   comment: z.string().trim().max(1000).optional(),
 });
+
+export const urgentSchema = z.object({
+  urgent: z.boolean({ error: "Indica si la solicitud es urgente (true o false)" }),
+});

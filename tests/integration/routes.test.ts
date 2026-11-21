@@ -26,6 +26,7 @@ import { GET as getEligibility } from "@/app/api/requests/eligibility/route";
 import { POST as approve } from "@/app/api/requests/[id]/approve/route";
 import { POST as reject } from "@/app/api/requests/[id]/reject/route";
 import { POST as review } from "@/app/api/requests/[id]/review/route";
+import { POST as markUrgent } from "@/app/api/requests/[id]/urgent/route";
 import { POST as recheckBureau } from "@/app/api/requests/[id]/bureau/route";
 import { createSessionToken } from "@/server/auth/session";
 import { prisma } from "@/server/db";
@@ -72,6 +73,7 @@ const protectedRoutes: { name: string; role: "ANALISTA" | "SOLICITANTE"; call: (
     call: () => reject(post("/x", { reason: "Motivo suficientemente largo" }, { "Idempotency-Key": randomUUID() }), ctx(someId)),
   },
   { name: "POST /api/requests/:id/bureau", role: "ANALISTA", call: () => recheckBureau(post("/x"), ctx(someId)) },
+  { name: "POST /api/requests/:id/urgent", role: "ANALISTA", call: () => markUrgent(post("/x", { urgent: true }), ctx(someId)) },
   { name: "POST /api/requests", role: "SOLICITANTE", call: () => createRequest(post("/api/requests", {})) },
   {
     name: "GET /api/requests/eligibility",
@@ -190,5 +192,53 @@ describe("Aprobación por HTTP: idempotencia y conflictos", () => {
     const res = await reject(post(`/api/requests/${id}/reject`, { reason: "corto" }, { "Idempotency-Key": randomUUID() }), ctx(id));
     expect(res.status).toBe(400);
     expect(await errorCode(res)).toBe("VALIDATION");
+  });
+});
+
+describe("Marca de urgente por HTTP", () => {
+  type Listed = { id: string; urgent?: boolean };
+  const listFor = async (actor: { id: string }) => {
+    asUser(actor);
+    return ((await (await listRequests()).json()) as { requests: Listed[] }).requests;
+  };
+
+  it("el analista la marca y la quita, y la marca solo se le muestra a él", async () => {
+    const id = await requestInReview(1_000);
+
+    asUser(analista);
+    const marked = await markUrgent(post(`/api/requests/${id}/urgent`, { urgent: true }), ctx(id));
+    expect(marked.status).toBe(200);
+    expect(((await marked.json()) as { request: Listed }).request.urgent).toBe(true);
+
+    expect((await listFor(analista)).find((r) => r.id === id)?.urgent).toBe(true);
+    // El solicitante que creó la solicitud la ve, pero sin el campo: es una herramienta interna.
+    const seenByRequester = (await listFor(solicitante)).find((r) => r.id === id);
+    expect(seenByRequester).toBeDefined();
+    expect(seenByRequester).not.toHaveProperty("urgent");
+
+    asUser(analista);
+    const unmarked = await markUrgent(post(`/api/requests/${id}/urgent`, { urgent: false }), ctx(id));
+    expect(((await unmarked.json()) as { request: Listed }).request.urgent).toBe(false);
+  });
+
+  it("rechaza un cuerpo inválido con 400 y un id inexistente con 404", async () => {
+    const id = await requestInReview(1_000);
+    asUser(analista);
+    for (const body of [{}, { urgent: "si" }, { urgent: 1 }]) {
+      const res = await markUrgent(post(`/api/requests/${id}/urgent`, body), ctx(id));
+      expect(res.status, JSON.stringify(body)).toBe(400);
+      expect(await errorCode(res)).toBe("VALIDATION");
+    }
+    const missing = await markUrgent(post("/x", { urgent: true }), ctx(randomUUID()));
+    expect(missing.status).toBe(404);
+  });
+
+  it("una solicitud ya resuelta responde 409 y no se puede marcar", async () => {
+    const id = await requestInReview(1_000);
+    asUser(analista);
+    await approve(post(`/api/requests/${id}/approve`, {}, { "Idempotency-Key": randomUUID() }), ctx(id));
+    const res = await markUrgent(post(`/api/requests/${id}/urgent`, { urgent: true }), ctx(id));
+    expect(res.status).toBe(409);
+    expect(await errorCode(res)).toBe("INVALID_TRANSITION");
   });
 });

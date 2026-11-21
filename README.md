@@ -4,7 +4,7 @@ Autor: Anthony Ramirez
 
 Aplicación full-stack para registrar solicitudes de crédito, consultar un buró crediticio simulado
 (lento e inestable), y que un analista las revise, apruebe o rechace contra un presupuesto global
-de **$50,000.00 USD**, con auditoría inmutable en tiempo real.
+de **Q50,000.00** (quetzales), con auditoría inmutable en tiempo real.
 
 **Stack:** Next.js 15 (App Router) · TypeScript estricto · API Routes + Zod · Prisma · PostgreSQL 16 · Vitest · Docker Compose.
 
@@ -51,6 +51,9 @@ En la pantalla de inicio hay un **selector de usuarios**; no hacen falta contras
    segundo plano con reintentos, así que puedes seguir navegando.
 3. Entra como **Carla**: "Tomar en revisión" → "Aprobar" (el monto se descuenta del presupuesto) o
    "Rechazar" (motivo de al menos 15 caracteres).
+   En la lista puedes pulsar las tarjetas de estado para filtrar, buscar por nombre, documento o ID,
+   y ordenar por fecha, monto o nombre. Con "Marcar urgente" una solicitud abierta aparece primero y
+   con su etiqueta, y el botón "Solo urgentes" deja únicamente esas.
 4. Abre **Auditoría** en otra pestaña: las transiciones aparecen en vivo.
 
 ### Desarrollo local (la app fuera de Docker)
@@ -189,8 +192,8 @@ documento no pueden saltarse la regla.
   solo si se corta la conexión.
 
 ### Dinero
-Todos los importes se guardan como **enteros en centavos**, así se evitan los errores de coma
-flotante. El límite del 40 % se calcula con aritmética entera (`monto·10 ≤ ingreso·4`) y está
+Los importes se muestran en **quetzales** (`Q50,000.00`). Todos se guardan como **enteros en centavos**,
+así se evitan los errores de coma flotante. El límite del 40 % se calcula con aritmética entera (`monto·10 ≤ ingreso·4`) y está
 replicado como `CHECK` en la BD.
 
 ### Validación en frontend y backend
@@ -209,6 +212,14 @@ de la petición en la API. La regla de historial se consulta en vivo al escribir
   `exceedsDebtLimit` en `src/domain/rules.ts` y el `CHECK` de la migración.
 - **Tabla de amortización**: se usa el sistema francés (cuota fija) con interés fijo del 1.5 %
   mensual sobre el saldo. La última cuota absorbe los redondeos a centavos.
+- **Moneda**: la especificación habla de un presupuesto de `$50,000.00 USD`. Como la operación es en
+  Guatemala, la interfaz y los mensajes muestran quetzales. No hay conversión, el presupuesto sigue
+  siendo el mismo número (`Q50,000.00`). Para volver a dólares basta con cambiar `CURRENCY_CODE`,
+  `CURRENCY_SYMBOL` y `formatMoney` en `src/domain/money.ts`, y las etiquetas `(GTQ)` del formulario.
+- **Marca de urgente**: es una herramienta interna del analista para atender antes a un cliente
+  importante. Solo se puede cambiar mientras la solicitud está abierta (`CREADA` o `EN_REVISION`), el
+  solicitante no la ve y no cambia ninguna regla: el 40 %, los 30 días, el buró y el presupuesto se
+  aplican igual. Cada cambio queda en la auditoría con el mismo estado como anterior y nuevo.
 - **"Tomar en revisión"** es una acción explícita del analista (`CREADA → EN_REVISION`) y queda
   auditada como cualquier otra transición.
 
@@ -224,6 +235,7 @@ de la petición en la API. La regla de historial se consulta en vivo al escribir
 | POST | `/api/requests/:id/approve` | Analista | Aprobar (requiere `Idempotency-Key`) |
 | POST | `/api/requests/:id/reject` | Analista | Rechazar con `{ reason }` (requiere `Idempotency-Key`) |
 | POST | `/api/requests/:id/bureau` | Analista | Volver a consultar el buró |
+| POST | `/api/requests/:id/urgent` | Analista | Marcar o quitar la marca de urgente con `{ urgent: true }` |
 | GET | `/api/budget` | Analista | Presupuesto global |
 | GET | `/api/audit` · `/api/audit/stream` | Analista | Auditoría (listado / SSE) |
 | GET | `/api/bureau/:documentId` | token interno | Buró simulado (servicio "externo"), cabecera `x-internal-token` |
