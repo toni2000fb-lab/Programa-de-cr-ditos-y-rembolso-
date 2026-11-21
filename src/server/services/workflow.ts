@@ -70,6 +70,7 @@ function baseDto(r: CreditRequest) {
     monthlyIncomeCents: r.monthlyIncomeCents,
     amountCents: r.amountCents,
     termMonths: r.termMonths,
+    employmentTenure: r.employmentTenure,
     status: r.status,
     rejectionReason: r.rejectionReason,
     decidedAt: r.decidedAt?.toISOString() ?? null,

@@ -12,6 +12,7 @@ function dto(id: string, o: Partial<RequestDTO>): RequestDTO {
     monthlyIncomeCents: 1_000_000,
     amountCents: 100_000,
     termMonths: 12,
+    employmentTenure: null,
     status: "CREADA",
     rejectionReason: null,
     decidedAt: null,
@@ -28,10 +29,10 @@ function dto(id: string, o: Partial<RequestDTO>): RequestDTO {
 }
 
 const baseRequests: RequestDTO[] = [
-  dto("r1", { applicantName: "Ana López", amountCents: 500_000, createdAt: "2026-11-03T09:00:00.000Z", status: "APROBADA" }),
-  dto("r2", { applicantName: "Bruno Pérez", amountCents: 150_000, createdAt: "2026-11-01T09:00:00.000Z", status: "EN_REVISION" }),
-  dto("r3", { applicantName: "Álvaro Zúñiga", amountCents: 900_000, createdAt: "2026-11-02T09:00:00.000Z", status: "CREADA" }),
-  dto("r4", { applicantName: "Carla Díaz", amountCents: 250_000, createdAt: "2026-11-04T09:00:00.000Z", status: "RECHAZADA", rejectionReason: "Historial insuficiente" }),
+  dto("r1", { applicantName: "Ana López", employmentTenure: "TRES_ANIOS_O_MAS", amountCents: 500_000, createdAt: "2026-11-03T09:00:00.000Z", status: "APROBADA" }),
+  dto("r2", { applicantName: "Bruno Pérez", employmentTenure: "MENOS_DE_1_ANIO", amountCents: 150_000, createdAt: "2026-11-01T09:00:00.000Z", status: "EN_REVISION" }),
+  dto("r3", { applicantName: "Álvaro Zúñiga", employmentTenure: "DE_1_A_3_ANIOS", amountCents: 900_000, createdAt: "2026-11-02T09:00:00.000Z", status: "CREADA" }),
+  dto("r4", { applicantName: "Carla Díaz", employmentTenure: "TRES_ANIOS_O_MAS", amountCents: 250_000, createdAt: "2026-11-04T09:00:00.000Z", status: "RECHAZADA", rejectionReason: "Historial insuficiente" }),
   dto("r5", { applicantName: "Diego Pérez", amountCents: 300_000, createdAt: "2026-11-05T09:00:00.000Z", status: "APROBADA" }),
 ];
 
@@ -252,5 +253,50 @@ describe("Panel del analista: marca de urgente", () => {
       const row = rowOf(name);
       expect(within(row).queryByRole("button", { name: /urgente/i })).toBeNull();
     }
+  });
+});
+
+describe("Panel del analista: prioridad por antigüedad laboral", () => {
+  const rowOf = (name: string) => screen.getByText(name).closest("tr") as HTMLElement;
+
+  it("muestra la prioridad y la antigüedad que la origina, y 'Sin dato' si falta", async () => {
+    await renderLoaded();
+    expect(within(rowOf("Ana López")).getByText("Alta")).toBeTruthy();
+    expect(within(rowOf("Ana López")).getByText("3 años o más")).toBeTruthy();
+    expect(within(rowOf("Álvaro Zúñiga")).getByText("Media")).toBeTruthy();
+    expect(within(rowOf("Álvaro Zúñiga")).getByText("De 1 a menos de 3 años")).toBeTruthy();
+    expect(within(rowOf("Bruno Pérez")).getByText("Baja")).toBeTruthy();
+    expect(within(rowOf("Bruno Pérez")).getByText("Menos de 1 año")).toBeTruthy();
+    expect(within(rowOf("Diego Pérez")).getByText("Sin dato")).toBeTruthy();
+  });
+
+  it("el filtro de prioridad deja solo las de ese nivel y se combina con el estado", async () => {
+    const { container } = await renderLoaded();
+    fireEvent.change(screen.getByLabelText("Prioridad"), { target: { value: "ALTA" } });
+    expect(names(container)).toEqual(["Carla Díaz", "Ana López"]);
+
+    fireEvent.click(card("Aprobada"));
+    expect(names(container)).toEqual(["Ana López"]);
+
+    fireEvent.change(screen.getByLabelText("Prioridad"), { target: { value: "BAJA" } });
+    expect(names(container)).toEqual([]);
+    expect(screen.getByText("Ninguna solicitud coincide con los filtros.")).toBeTruthy();
+  });
+
+  it("ordena por prioridad de alta a baja, con la más antigua primero dentro de cada nivel", async () => {
+    const { container } = await renderLoaded();
+    fireEvent.change(screen.getByLabelText("Ordenar por"), { target: { value: "PRIORIDAD_DESC" } });
+    expect(names(container)).toEqual(["Ana López", "Carla Díaz", "Álvaro Zúñiga", "Bruno Pérez", "Diego Pérez"]);
+    fireEvent.change(screen.getByLabelText("Ordenar por"), { target: { value: "PRIORIDAD_ASC" } });
+    expect(names(container)).toEqual(["Diego Pérez", "Bruno Pérez", "Álvaro Zúñiga", "Ana López", "Carla Díaz"]);
+  });
+
+  it("'Limpiar filtros' también restablece la prioridad", async () => {
+    const { container } = await renderLoaded();
+    fireEvent.change(screen.getByLabelText("Prioridad"), { target: { value: "MEDIA" } });
+    expect(names(container)).toEqual(["Álvaro Zúñiga"]);
+    fireEvent.click(screen.getByRole("button", { name: "Limpiar filtros" }));
+    expect((screen.getByLabelText("Prioridad") as HTMLSelectElement).value).toBe("TODAS");
+    expect(names(container)).toHaveLength(5);
   });
 });

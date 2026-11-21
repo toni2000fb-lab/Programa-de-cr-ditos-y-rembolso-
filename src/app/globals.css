@@ -153,3 +153,8 @@ button.urgent.on { background: var(--bad-bg); }
 .toolbar > button { padding: 8px 12px; }
 .toggle .count { font-weight: 700; font-variant-numeric: tabular-nums; }
 .toggle[aria-pressed="true"] { border-color: var(--bad); background: var(--bad-bg); color: var(--bad); }
+/* Prioridad de atención (sale de la antigüedad laboral) */
+.badge-prioridad-alta { background: var(--ok-bg); color: var(--ok); }
+.badge-prioridad-media { background: var(--info-bg); color: var(--info); }
+.badge-prioridad-baja { background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
+.tenure { display: block; font-size: 0.78rem; color: var(--muted); margin-top: 2px; white-space: nowrap; }

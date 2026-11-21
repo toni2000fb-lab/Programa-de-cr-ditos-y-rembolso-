@@ -61,7 +61,7 @@ export function MyRequests({ refreshKey }: { refreshKey: number }) {
             <tbody>
               {requests.map((r) => (
                 <tr key={r.id}>
-                  <td>{new Date(r.createdAt).toLocaleString("es")}</td>
+                  <td>{new Date(r.createdAt).toLocaleString("es-GT")}</td>
                   <td>{r.applicantName}</td>
                   <td>{r.documentId}</td>
                   <td>{formatMoney(r.amountCents)}</td>

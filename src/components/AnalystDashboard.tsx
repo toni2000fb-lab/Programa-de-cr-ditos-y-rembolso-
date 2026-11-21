@@ -12,13 +12,14 @@ import {
   filterAndSort,
   hasActiveFilters,
   isUrgent,
+  type PriorityFilter,
   type SortKey,
   type StatusFilter,
 } from "@/domain/requestView";
 import { apiFetch, errorMessage } from "./api";
 import { usePolledRequests } from "./MyRequests";
 import { RequestToolbar, StatusKpiCards } from "./RequestFilters";
-import { BureauCell, StatusBadge } from "./StatusBadge";
+import { BureauCell, PriorityCell, StatusBadge } from "./StatusBadge";
 import type { BudgetDTO, RequestDTO } from "./types";
 
 function BudgetCard({ refreshKey }: { refreshKey: number }) {
@@ -171,6 +172,7 @@ export function AnalystDashboard() {
   const [refreshKey, setRefreshKey] = useState(0);
   const { requests, error, reload } = usePolledRequests(refreshKey);
   const [status, setStatus] = useState<StatusFilter>("TODAS");
+  const [priority, setPriority] = useState<PriorityFilter>("TODAS");
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey>(DEFAULT_SORT);
   const [urgentOnly, setUrgentOnly] = useState(false);
@@ -180,13 +182,17 @@ export function AnalystDashboard() {
   }, [reload]);
 
   const all = useMemo(() => requests ?? [], [requests]);
-  const view = useMemo(() => ({ status, query, sort, urgentOnly }), [status, query, sort, urgentOnly]);
+  const view = useMemo(
+    () => ({ status, priority, query, sort, urgentOnly }),
+    [status, priority, query, sort, urgentOnly],
+  );
   const visible = useMemo(() => filterAndSort(all, view), [all, view]);
   const counts = useMemo(() => countByStatus(all), [all]);
   const urgentCount = useMemo(() => countUrgent(all), [all]);
   const filtersActive = hasActiveFilters(view);
   const clearFilters = () => {
     setStatus("TODAS");
+    setPriority("TODAS");
     setQuery("");
     setSort(DEFAULT_SORT);
     setUrgentOnly(false);
@@ -202,6 +208,7 @@ export function AnalystDashboard() {
         <h2>Solicitudes</h2>
         <RequestToolbar
           status={status}
+          priority={priority}
           query={query}
           sort={sort}
           shown={visible.length}
@@ -210,6 +217,7 @@ export function AnalystDashboard() {
           urgentCount={urgentCount}
           filtersActive={filtersActive}
           onStatus={setStatus}
+          onPriority={setPriority}
           onQuery={setQuery}
           onSort={setSort}
           onUrgentOnly={setUrgentOnly}
@@ -233,6 +241,7 @@ export function AnalystDashboard() {
                   <th>Ingreso</th>
                   <th>Monto</th>
                   <th>Plazo</th>
+                  <th>Prioridad</th>
                   <th>Buró</th>
                   <th>Estado</th>
                   <th>Acciones</th>
@@ -247,6 +256,9 @@ export function AnalystDashboard() {
                     <td>{formatMoney(r.monthlyIncomeCents)}</td>
                     <td>{formatMoney(r.amountCents)}</td>
                     <td>{r.termMonths} m</td>
+                    <td>
+                      <PriorityCell tenure={r.employmentTenure} />
+                    </td>
                     <td>
                       <BureauCell status={r.bureauStatus} score={r.bureauScore} error={r.bureauError} attempts={r.bureauAttempts} />
                     </td>

@@ -45,7 +45,8 @@ En la pantalla de inicio hay un **selector de usuarios**; no hacen falta contras
 
 ### Flujo para probarlo
 
-1. Entra como **Ana** y crea una solicitud. La tabla de amortización se recalcula mientras escribes.
+1. Entra como **Ana** y crea una solicitud, eligiendo el tiempo en su trabajo actual. La tabla de
+   amortización se recalcula mientras escribes.
    Prueba un monto mayor al 40 % del ingreso, o repetir el mismo documento, para ver los bloqueos.
 2. La solicitud aparece con el estado del buró ("Consultando buró…"). La consulta se hace en
    segundo plano con reintentos, así que puedes seguir navegando.
@@ -53,7 +54,8 @@ En la pantalla de inicio hay un **selector de usuarios**; no hacen falta contras
    "Rechazar" (motivo de al menos 15 caracteres).
    En la lista puedes pulsar las tarjetas de estado para filtrar, buscar por nombre, documento o ID,
    y ordenar por fecha, monto o nombre. Con "Marcar urgente" una solicitud abierta aparece primero y
-   con su etiqueta, y el botón "Solo urgentes" deja únicamente esas.
+   con su etiqueta, y el botón "Solo urgentes" deja únicamente esas. Cada solicitud muestra además su
+   prioridad (Alta, Media o Baja), que puedes filtrar y usar para ordenar.
 4. Abre **Auditoría** en otra pestaña: las transiciones aparecen en vivo.
 
 ### Desarrollo local (la app fuera de Docker)
@@ -216,6 +218,14 @@ de la petición en la API. La regla de historial se consulta en vivo al escribir
   Guatemala, la interfaz y los mensajes muestran quetzales. No hay conversión, el presupuesto sigue
   siendo el mismo número (`Q50,000.00`). Para volver a dólares basta con cambiar `CURRENCY_CODE`,
   `CURRENCY_SYMBOL` y `formatMoney` en `src/domain/money.ts`, y las etiquetas `(GTQ)` del formulario.
+- **Prioridad por antigüedad laboral**: el solicitante indica cuánto tiempo lleva en su trabajo
+  actual y de ahí sale la prioridad por una regla fija: menos de 1 año es **Baja**, de 1 a menos de
+  3 años es **Media** y 3 años o más es **Alta**. Los rangos se dejaron contiguos para que no quede
+  ningún valor sin cubrir. Solo se guarda la antigüedad (`employment_tenure`); la prioridad se calcula
+  al mostrarla, así que cambiar la regla es editar una tabla en `src/domain/priority.ts`. Las
+  solicitudes anteriores a este dato muestran "Sin dato" y van al final al ordenar por prioridad. Con
+  la misma prioridad se atiende primero la que lleva más tiempo esperando. La prioridad solo ordena la
+  cola, no cambia ninguna regla: el 40 %, los 30 días, el buró y el presupuesto se aplican igual.
 - **Marca de urgente**: es una herramienta interna del analista para atender antes a un cliente
   importante. Solo se puede cambiar mientras la solicitud está abierta (`CREADA` o `EN_REVISION`), el
   solicitante no la ve y no cambia ninguna regla: el 40 %, los 30 días, el buró y el presupuesto se
@@ -229,7 +239,7 @@ de la petición en la API. La regla de historial se consulta en vivo al escribir
 |---|---|---|---|
 | POST | `/api/auth/login` · `/api/auth/logout` | — | Iniciar / cerrar sesión con un usuario de prueba |
 | GET | `/api/requests` | ambos | Listado (el solicitante sólo ve las suyas) |
-| POST | `/api/requests` | Solicitante | Crear solicitud |
+| POST | `/api/requests` | Solicitante | Crear solicitud (exige `employmentTenure`) |
 | GET | `/api/requests/eligibility?documentId=` | Solicitante | Comprobar la regla de 30 días |
 | POST | `/api/requests/:id/review` | Analista | `CREADA → EN_REVISION` |
 | POST | `/api/requests/:id/approve` | Analista | Aprobar (requiere `Idempotency-Key`) |
@@ -258,6 +268,8 @@ real, define `SESSION_SECRET`.
 
 ## Limitaciones conocidas
 
+- La antigüedad laboral es un dato declarado: el sistema no guarda ni verifica la constancia laboral.
+  El formulario recuerda que debe poder respaldarse y la comprobación queda en manos del analista.
 - La auditoría en vivo consulta la base de datos cada 1.5 s por cada panel abierto. Con muchos
   analistas conectados convendría `LISTEN/NOTIFY` de PostgreSQL.
 - El contenedor de la app se ejecuta como root; para producción habría que añadir un usuario sin
