@@ -108,6 +108,7 @@ La base `creditos_test` la crea el contenedor de Postgres al inicializarse
 | `tests/unit/rules.test.ts` | Límite del 40 % (en centavos), plazos válidos, motivo de rechazo y máquina de estados. |
 | `tests/unit/client-profile.test.ts` | Datos obligatorios del cliente: mayoría de edad (con cumpleaños y años bisiestos), teléfono de 8 dígitos, importes en cero pero no negativos, los cuatro documentos y referencias distintas. |
 | `tests/integration/request-detail.test.ts` | El detalle del cliente contra PostgreSQL: datos del cliente, asesor, historial por documento, seguimiento en orden y solicitudes antiguas sin esos datos. |
+| `tests/unit/theme-contrast.test.ts` | Los colores de la empresa en `globals.css` mantienen contraste WCAG AA (4.5) en texto, botones y estados, en modo claro y oscuro. |
 | `tests/unit/amortization.test.ts` | Cuota fija con 1.5 % mensual y cuadre de capital y saldo. |
 | `tests/unit/retry.test.ts` | Reintentos ante 503, sin reintentos ante 4xx y backoff exponencial. |
 | `tests/unit/session.test.ts` | Rechazo de cookies de sesión manipuladas o expiradas. |
@@ -209,6 +210,12 @@ documento no pueden saltarse la regla.
 Los importes se muestran en **quetzales** (`Q50,000.00`). Todos se guardan como **enteros en centavos**,
 así se evitan los errores de coma flotante. El límite del 40 % se calcula con aritmética entera (`monto·10 ≤ ingreso·4`) y está
 replicado como `CHECK` en la BD.
+
+### Colores de la empresa
+La interfaz usa los colores del logo (azul marino `#0a1b4d`, azul `#183380` y blanco). Viven como variables al
+inicio de `src/app/globals.css`, así que cambiar la identidad visual es editar ese bloque. Hay paleta clara
+y oscura (sigue la preferencia del sistema). Los colores de estado (verde, ámbar y rojo) conservan su
+significado y no son de marca; el verde y el ámbar se oscurecieron un poco para cumplir el contraste.
 
 ### Validación en frontend y backend
 El mismo esquema Zod (`src/domain/rules.ts`) valida el formulario mientras se escribe y el cuerpo

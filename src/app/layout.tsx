@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import Link from "next/link";
 import "./globals.css";
 import { getCurrentUser } from "@/server/auth/current-user";
@@ -9,6 +9,9 @@ export const metadata: Metadata = {
   title: "Créditos y Desembolsos",
   description: "Sistema de aprobación de créditos y desembolsos",
 };
+
+/** Color de la barra del navegador en el móvil: el azul marino del logo de la empresa. */
+export const viewport: Viewport = { themeColor: "#0a1b4d" };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const user = await getCurrentUser();

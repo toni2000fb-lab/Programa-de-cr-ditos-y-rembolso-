@@ -45,7 +45,7 @@ function fillClientData() {
   type(/Ingreso mensual declarado/, "3000");
   type(/Otros ingresos mensuales/, "0");
   type(/Gastos mensuales/, "1200");
-  type(/Cuotas mensuales de deudas actuales/, "0");
+  type(/Cuotas de deudas actuales/, "0");
   type(/Monto solicitado/, "1000");
   type(/Destino del crédito/, "Reparar la casa");
   type(/Garantía que ofrece/, "Fiador");

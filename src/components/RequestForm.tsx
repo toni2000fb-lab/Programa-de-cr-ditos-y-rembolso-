@@ -247,9 +247,9 @@ export function RequestForm({ onCreated }: { onCreated: () => void }) {
           {text("monthlyIncome", "Ingreso mensual declarado (GTQ)", { inputMode: "decimal" })}
           {text("otherIncome", "Otros ingresos mensuales (GTQ)", { inputMode: "decimal", hint: "Escribe 0 si no tiene." })}
           {text("monthlyExpenses", "Gastos mensuales (GTQ)", { inputMode: "decimal" })}
-          {text("currentDebtPayment", "Cuotas mensuales de deudas actuales (GTQ)", {
+          {text("currentDebtPayment", "Cuotas de deudas actuales (GTQ)", {
             inputMode: "decimal",
-            hint: "Escribe 0 si no tiene deudas.",
+            hint: "Suma de las cuotas mensuales. Escribe 0 si no tiene deudas.",
           })}
         </div>
       </fieldset>

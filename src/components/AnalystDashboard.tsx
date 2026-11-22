@@ -121,8 +121,7 @@ export function AnalystDashboard() {
                   <th>Asesor</th>
                   <th>Documento</th>
                   <th>Ingreso</th>
-                  <th>Monto</th>
-                  <th>Plazo</th>
+                  <th>Monto y plazo</th>
                   <th>Prioridad</th>
                   <th>Buró</th>
                   <th>Estado</th>
@@ -138,17 +137,22 @@ export function AnalystDashboard() {
                       if (!isInteractive(e.target)) router.push(`/analista/solicitudes/${r.id}`);
                     }}
                   >
-                    <td>{new Date(r.createdAt).toLocaleString("es-GT")}</td>
+                    <td className="nowrap">
+                      {new Date(r.createdAt).toLocaleDateString("es-GT", { dateStyle: "short" })}
+                      <span className="subtle">{new Date(r.createdAt).toLocaleTimeString("es-GT", { timeStyle: "short" })}</span>
+                    </td>
                     <td>
                       <Link href={`/analista/solicitudes/${r.id}`} className="client-link" title="Ver el detalle del cliente">
                         {r.applicantName}
                       </Link>
                     </td>
                     <td>{r.createdByName ?? "—"}</td>
-                    <td>{r.documentId}</td>
-                    <td>{formatMoney(r.monthlyIncomeCents)}</td>
-                    <td>{formatMoney(r.amountCents)}</td>
-                    <td>{r.termMonths} m</td>
+                    <td className="nowrap">{r.documentId}</td>
+                    <td className="nowrap">{formatMoney(r.monthlyIncomeCents)}</td>
+                    <td className="nowrap">
+                      {formatMoney(r.amountCents)}
+                      <span className="subtle">{r.termMonths} meses</span>
+                    </td>
                     <td>
                       <PriorityCell tenure={r.employmentTenure} />
                     </td>
