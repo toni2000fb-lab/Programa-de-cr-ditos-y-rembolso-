@@ -23,13 +23,14 @@ import { GET as getAuditStream } from "@/app/api/audit/stream/route";
 import { GET as getBudget } from "@/app/api/budget/route";
 import { GET as listRequests, POST as createRequest } from "@/app/api/requests/route";
 import { GET as getEligibility } from "@/app/api/requests/eligibility/route";
+import { GET as getDetail } from "@/app/api/requests/[id]/route";
 import { POST as approve } from "@/app/api/requests/[id]/approve/route";
 import { POST as reject } from "@/app/api/requests/[id]/reject/route";
 import { POST as review } from "@/app/api/requests/[id]/review/route";
-import { POST as markUrgent } from "@/app/api/requests/[id]/urgent/route";
 import { POST as recheckBureau } from "@/app/api/requests/[id]/bureau/route";
 import { createSessionToken } from "@/server/auth/session";
 import { prisma } from "@/server/db";
+import { clientProfileInput } from "../fixtures";
 import { analista, db, requestInReview, seedActors, setBudget, solicitante, solicitante2, uniqueDoc } from "./helpers";
 
 beforeAll(seedActors);
@@ -73,7 +74,7 @@ const protectedRoutes: { name: string; role: "ANALISTA" | "SOLICITANTE"; call: (
     call: () => reject(post("/x", { reason: "Motivo suficientemente largo" }, { "Idempotency-Key": randomUUID() }), ctx(someId)),
   },
   { name: "POST /api/requests/:id/bureau", role: "ANALISTA", call: () => recheckBureau(post("/x"), ctx(someId)) },
-  { name: "POST /api/requests/:id/urgent", role: "ANALISTA", call: () => markUrgent(post("/x", { urgent: true }), ctx(someId)) },
+  { name: "GET /api/requests/:id", role: "ANALISTA", call: () => getDetail(get("/x"), ctx(someId)) },
   { name: "POST /api/requests", role: "SOLICITANTE", call: () => createRequest(post("/api/requests", {})) },
   {
     name: "GET /api/requests/eligibility",
@@ -140,6 +141,7 @@ describe("Visibilidad de solicitudes por HTTP", () => {
         monthlyIncome: 3000,
         amount: 1000,
         termMonths: 12,
+        ...clientProfileInput(),
       }),
     );
     expect(created.status).toBe(201);
@@ -196,51 +198,22 @@ describe("Aprobación por HTTP: idempotencia y conflictos", () => {
   });
 });
 
-describe("Marca de urgente por HTTP", () => {
-  type Listed = { id: string; urgent?: boolean };
-  const listFor = async (actor: { id: string }) => {
-    asUser(actor);
-    return ((await (await listRequests()).json()) as { requests: Listed[] }).requests;
-  };
+describe("Asesor que registró cada solicitud", () => {
+  type Listed = { id: string; createdByName?: string };
 
-  it("el analista la marca y la quita, y la marca solo se le muestra a él", async () => {
-    const id = await requestInReview(1_000);
-
+  it("el listado del analista indica qué asesor hizo cada solicitud", async () => {
+    const mine = await requestInReview(1_000);
     asUser(analista);
-    const marked = await markUrgent(post(`/api/requests/${id}/urgent`, { urgent: true }), ctx(id));
-    expect(marked.status).toBe(200);
-    expect(((await marked.json()) as { request: Listed }).request.urgent).toBe(true);
-
-    expect((await listFor(analista)).find((r) => r.id === id)?.urgent).toBe(true);
-    // El solicitante que creó la solicitud la ve, pero sin el campo: es una herramienta interna.
-    const seenByRequester = (await listFor(solicitante)).find((r) => r.id === id);
-    expect(seenByRequester).toBeDefined();
-    expect(seenByRequester).not.toHaveProperty("urgent");
-
-    asUser(analista);
-    const unmarked = await markUrgent(post(`/api/requests/${id}/urgent`, { urgent: false }), ctx(id));
-    expect(((await unmarked.json()) as { request: Listed }).request.urgent).toBe(false);
+    const listed = ((await (await listRequests()).json()) as { requests: Listed[] }).requests;
+    expect(listed.find((r) => r.id === mine)?.createdByName).toBe(solicitante.name);
   });
 
-  it("rechaza un cuerpo inválido con 400 y un id inexistente con 404", async () => {
-    const id = await requestInReview(1_000);
-    asUser(analista);
-    for (const body of [{}, { urgent: "si" }, { urgent: 1 }]) {
-      const res = await markUrgent(post(`/api/requests/${id}/urgent`, body), ctx(id));
-      expect(res.status, JSON.stringify(body)).toBe(400);
-      expect(await errorCode(res)).toBe("VALIDATION");
-    }
-    const missing = await markUrgent(post("/x", { urgent: true }), ctx(randomUUID()));
-    expect(missing.status).toBe(404);
-  });
-
-  it("una solicitud ya resuelta responde 409 y no se puede marcar", async () => {
-    const id = await requestInReview(1_000);
-    asUser(analista);
-    await approve(post(`/api/requests/${id}/approve`, {}, { "Idempotency-Key": randomUUID() }), ctx(id));
-    const res = await markUrgent(post(`/api/requests/${id}/urgent`, { urgent: true }), ctx(id));
-    expect(res.status).toBe(409);
-    expect(await errorCode(res)).toBe("INVALID_TRANSITION");
+  it("cada asesor ve solo las suyas, con su propio nombre", async () => {
+    const mine = await requestInReview(1_000);
+    asUser(solicitante2);
+    const listed = ((await (await listRequests()).json()) as { requests: Listed[] }).requests;
+    expect(listed.find((r) => r.id === mine)).toBeUndefined();
+    for (const r of listed) expect(r.createdByName).toBe(solicitante2.name);
   });
 });
 
@@ -252,6 +225,7 @@ describe("Antigüedad laboral al crear la solicitud", () => {
     monthlyIncome: 3000,
     amount: 1000,
     termMonths: 12,
+    ...clientProfileInput(),
     ...extra,
   });
 
@@ -295,3 +269,164 @@ describe("Antigüedad laboral al crear la solicitud", () => {
     expect(requests.find((r) => r.id === legacy.id)?.employmentTenure).toBeNull();
   });
 });
+
+describe("Detalle del cliente por HTTP", () => {
+  type Detail = {
+    request: { id: string; applicantName: string; createdByName?: string };
+    createdBy: { name: string; role: string };
+    history: unknown[];
+    audit: { toStatus: string }[];
+    availableBudgetCents: number;
+  };
+
+  it("el analista recibe la solicitud, quién la registró, la auditoría y el presupuesto", async () => {
+    const id = await requestInReview(1_000);
+    await setBudget(1_234_500);
+    asUser(analista);
+    const res = await getDetail(get(`/api/requests/${id}`), ctx(id));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Detail;
+    expect(body.request.id).toBe(id);
+    expect(body.request.createdByName).toBe(solicitante.name);
+    expect(body.createdBy).toMatchObject({ name: solicitante.name, role: "SOLICITANTE" });
+    expect(body.availableBudgetCents).toBe(1_234_500);
+    expect(body.audit.map((a) => a.toStatus)).toEqual(["CREADA", "EN_REVISION"]);
+  });
+
+  it("un asesor de crédito recibe 403 aunque la solicitud sea suya", async () => {
+    const id = await requestInReview(1_000);
+    asUser(solicitante);
+    expect((await getDetail(get(`/api/requests/${id}`), ctx(id))).status).toBe(403);
+  });
+
+  it("un identificador inexistente o mal formado responde 404", async () => {
+    asUser(analista);
+    for (const id of [randomUUID(), "no-es-un-uuid"]) {
+      const res = await getDetail(get(`/api/requests/${id}`), ctx(id));
+      expect(res.status, id).toBe(404);
+      expect(await errorCode(res)).toBe("NOT_FOUND");
+    }
+  });
+});
+
+describe("Datos obligatorios del cliente al crear la solicitud", () => {
+  const body = (extra: Record<string, unknown> = {}) => ({
+    applicantName: "Cliente Datos",
+    documentId: uniqueDoc(),
+    employmentTenure: "TRES_ANIOS_O_MAS",
+    monthlyIncome: 3000,
+    amount: 1000,
+    termMonths: 12,
+    ...clientProfileInput(),
+    ...extra,
+  });
+
+  it("se guardan junto con la solicitud, con importes en centavos y teléfonos normalizados", async () => {
+    asUser(solicitante);
+    const res = await createRequest(
+      post(
+        "/api/requests",
+        body({ phone: "+502 5555-1234", otherIncome: 250.5, monthlyExpenses: 1200.25, currentDebtPayment: 300, incomeType: "NEGOCIO_PROPIO" }),
+      ),
+    );
+    expect(res.status).toBe(201);
+    const { request } = (await res.json()) as { request: { id: string } };
+    const profile = await db.clientProfile.findUniqueOrThrow({ where: { requestId: request.id } });
+    expect(profile).toMatchObject({
+      phone: "55551234",
+      incomeType: "NEGOCIO_PROPIO",
+      otherIncomeCents: 25_050,
+      monthlyExpensesCents: 120_025,
+      currentDebtPaymentCents: 30_000,
+      reference1Phone: "55550001",
+      receivedDocuments: ["COPIA_DPI", "COMPROBANTE_DOMICILIO", "CONSTANCIA_LABORAL", "COMPROBANTE_INGRESOS"],
+    });
+    expect(profile.birthDate.toISOString().slice(0, 10)).toBe("1990-05-10");
+  });
+
+  it("sin cualquiera de los datos obligatorios responde 400 y no crea nada", async () => {
+    asUser(solicitante);
+    const doc = uniqueDoc();
+    for (const field of ["birthDate", "phone", "address", "employerName", "incomeType", "purpose", "reference2Phone", "receivedDocuments"]) {
+      const payload = body({ documentId: doc }) as Record<string, unknown>;
+      delete payload[field];
+      const res = await createRequest(post("/api/requests", payload));
+      expect(res.status, field).toBe(400);
+      expect(await errorCode(res)).toBe("VALIDATION");
+    }
+    expect(await db.creditRequest.count({ where: { documentId: doc } })).toBe(0);
+  });
+
+  it("rechaza un cliente menor de edad, documentos incompletos y referencias repetidas", async () => {
+    asUser(solicitante);
+    const tooYoung = new Date();
+    tooYoung.setUTCFullYear(tooYoung.getUTCFullYear() - 17);
+    const bad: Record<string, unknown>[] = [
+      { birthDate: tooYoung.toISOString().slice(0, 10) },
+      { receivedDocuments: ["COPIA_DPI", "CONSTANCIA_LABORAL"] },
+      { reference2Phone: "5555 0001" },
+      { reference1Phone: "5555-1234" },
+      { monthlyExpenses: -1 },
+      { phone: "555" },
+    ];
+    for (const extra of bad) {
+      const res = await createRequest(post("/api/requests", body(extra)));
+      expect(res.status, JSON.stringify(extra)).toBe(400);
+    }
+  });
+
+  it("si la solicitud se bloquea por el historial no queda ningún perfil huérfano", async () => {
+    asUser(solicitante);
+    const doc = uniqueDoc();
+    expect((await createRequest(post("/api/requests", body({ documentId: doc })))).status).toBe(201);
+    const before = await db.clientProfile.count();
+    const again = await createRequest(post("/api/requests", body({ documentId: doc })));
+    expect(again.status).toBe(409);
+    expect(await db.clientProfile.count()).toBe(before);
+  });
+
+  it("el analista recibe los datos del cliente en el detalle y el asesor no puede pedirlos", async () => {
+    asUser(solicitante);
+    const created = await createRequest(post("/api/requests", body()));
+    const { request } = (await created.json()) as { request: { id: string } };
+
+    asUser(analista);
+    const res = await getDetail(get(`/api/requests/${request.id}`), ctx(request.id));
+    expect(res.status).toBe(200);
+    const detail = (await res.json()) as { profile: { phone: string; references: unknown[]; receivedDocuments: string[] } };
+    expect(detail.profile.phone).toBe("55551234");
+    expect(detail.profile.references).toHaveLength(2);
+    expect(detail.profile.receivedDocuments).toHaveLength(4);
+
+    asUser(solicitante);
+    expect((await getDetail(get(`/api/requests/${request.id}`), ctx(request.id))).status).toBe(403);
+  });
+
+  it("el listado de solicitudes no filtra los datos personales del cliente", async () => {
+    asUser(solicitante);
+    const created = await createRequest(post("/api/requests", body()));
+    const { request } = (await created.json()) as { request: Record<string, unknown> };
+    for (const field of ["phone", "address", "birthDate", "references", "receivedDocuments", "profile"]) {
+      expect(request, field).not.toHaveProperty(field);
+    }
+    asUser(analista);
+    const { requests } = (await (await listRequests()).json()) as { requests: Record<string, unknown>[] };
+    for (const r of requests) expect(r).not.toHaveProperty("profile");
+  });
+});
+
+describe("Restricciones de la tabla de datos del cliente", () => {
+  it("la base de datos rechaza importes negativos aunque se salte la API", async () => {
+    const id = await requestInReview(1_000);
+    await expect(
+      db.$executeRaw`UPDATE client_profiles SET monthly_expenses_cents = -1 WHERE request_id = ${id}::uuid`,
+    ).rejects.toThrow(/client_profiles_money_non_negative|check constraint/i);
+  });
+
+  it("ya no existe la columna de urgente en las solicitudes", async () => {
+    const columns = await db.$queryRaw<{ column_name: string }[]>`
+      SELECT column_name::text AS column_name FROM information_schema.columns WHERE table_name = 'credit_requests'`;
+    expect(columns.map((c) => c.column_name)).not.toContain("urgent");
+  });
+});
+

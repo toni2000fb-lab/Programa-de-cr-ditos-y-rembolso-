@@ -1,26 +1,24 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatMoney } from "@/domain/money";
-import { canRetryBureau } from "@/domain/bureau";
-import { MIN_REJECTION_REASON_LENGTH } from "@/domain/rules";
-import { PENDING_STATUSES } from "@/domain/stateMachine";
 import {
   countByStatus,
-  countUrgent,
   DEFAULT_SORT,
   filterAndSort,
   hasActiveFilters,
-  isUrgent,
   type PriorityFilter,
   type SortKey,
   type StatusFilter,
 } from "@/domain/requestView";
-import { apiFetch, errorMessage } from "./api";
+import { apiFetch } from "./api";
 import { usePolledRequests } from "./MyRequests";
+import { RequestActions } from "./RequestActions";
 import { RequestToolbar, StatusKpiCards } from "./RequestFilters";
 import { BureauCell, PriorityCell, StatusBadge } from "./StatusBadge";
-import type { BudgetDTO, RequestDTO } from "./types";
+import type { BudgetDTO } from "./types";
 
 function BudgetCard({ refreshKey }: { refreshKey: number }) {
   const [budget, setBudget] = useState<BudgetDTO | null>(null);
@@ -55,147 +53,33 @@ function BudgetCard({ refreshKey }: { refreshKey: number }) {
   );
 }
 
-type Busy = "review" | "approve" | "reject" | "bureau" | "urgent";
-
-function RequestActions({ r, onDone }: { r: RequestDTO; onDone: () => void }) {
-  const [busy, setBusy] = useState<Busy | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [rejecting, setRejecting] = useState(false);
-  const [reason, setReason] = useState("");
-  // Una clave por intención de decisión: los reintentos/doble clic reutilizan la misma clave.
-  const keys = useRef<Partial<Record<"approve" | "reject", string>>>({});
-
-  const run = useCallback(
-    async (kind: Busy, url: string, body: unknown, idemKind?: "approve" | "reject") => {
-      if (busy) return; // evita doble clic en el cliente; el servidor también lo garantiza
-      setBusy(kind);
-      setError(null);
-      const headers: Record<string, string> = {};
-      if (idemKind) {
-        keys.current[idemKind] ??= crypto.randomUUID();
-        headers["Idempotency-Key"] = keys.current[idemKind];
-      }
-      try {
-        await apiFetch(url, { method: "POST", body: JSON.stringify(body), headers });
-        setRejecting(false);
-        onDone();
-      } catch (e) {
-        setError(errorMessage(e));
-        if (idemKind) delete keys.current[idemKind];
-        onDone();
-      } finally {
-        setBusy(null);
-      }
-    },
-    [busy, onDone],
-  );
-
-  const base = `/api/requests/${r.id}`;
-  const reasonOk = reason.trim().length >= MIN_REJECTION_REASON_LENGTH;
-  const showBureauRetry = canRetryBureau(r);
-
-  return (
-    <div className="actions">
-      {r.status === "CREADA" && (
-        <button onClick={() => run("review", `${base}/review`, {})} disabled={!!busy}>
-          {busy === "review" ? "Tomando…" : "Tomar en revisión"}
-        </button>
-      )}
-      {r.status === "EN_REVISION" && (
-        <>
-          <button
-            className="approve"
-            onClick={() => run("approve", `${base}/approve`, {}, "approve")}
-            disabled={!!busy || r.bureauStatus !== "COMPLETADO"}
-            title={r.bureauStatus !== "COMPLETADO" ? "Requiere consulta de buró completada" : undefined}
-          >
-            {busy === "approve" ? "Aprobando…" : "Aprobar"}
-          </button>
-          <button className="reject" onClick={() => setRejecting((v) => !v)} disabled={!!busy}>
-            Rechazar
-          </button>
-        </>
-      )}
-      {PENDING_STATUSES.includes(r.status) && (
-        <button
-          className={r.urgent ? "urgent on" : "urgent"}
-          onClick={() => run("urgent", `${base}/urgent`, { urgent: !r.urgent })}
-          disabled={!!busy}
-          title={r.urgent ? "Quitar la marca de urgente" : "Marcar para atender primero"}
-        >
-          {busy === "urgent" ? "Guardando…" : r.urgent ? "Quitar urgente" : "Marcar urgente"}
-        </button>
-      )}
-      {showBureauRetry && (
-        <button
-          onClick={() => run("bureau", `${base}/bureau`, {})}
-          disabled={!!busy}
-          title={r.bureauStatus === "FALLIDO" ? undefined : "La consulta lleva demasiado tiempo sin avanzar"}
-        >
-          {busy === "bureau" ? (
-            <>
-              <span className="spinner" aria-hidden /> Consultando…
-            </>
-          ) : (
-            "Reintentar buró"
-          )}
-        </button>
-      )}
-      {rejecting && r.status === "EN_REVISION" && (
-        <div className="reject-box">
-          <textarea
-            placeholder={`Motivo del rechazo (mínimo ${MIN_REJECTION_REASON_LENGTH} caracteres)`}
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            rows={2}
-          />
-          <div className="row">
-            <span className={reasonOk ? "hint" : "field-error"}>
-              {reason.trim().length}/{MIN_REJECTION_REASON_LENGTH}
-            </span>
-            <button
-              className="reject"
-              disabled={!reasonOk || !!busy}
-              onClick={() => run("reject", `${base}/reject`, { reason }, "reject")}
-            >
-              {busy === "reject" ? "Rechazando…" : "Confirmar rechazo"}
-            </button>
-          </div>
-        </div>
-      )}
-      {error && <span className="field-error">{error}</span>}
-    </div>
-  );
-}
+/** Ignora los clics sobre botones, enlaces y campos: la fila solo navega si se pulsa en otro lugar. */
+const isInteractive = (target: EventTarget) =>
+  target instanceof Element && target.closest("a, button, input, select, textarea, label") !== null;
 
 export function AnalystDashboard() {
+  const router = useRouter();
   const [refreshKey, setRefreshKey] = useState(0);
   const { requests, error, reload } = usePolledRequests(refreshKey);
   const [status, setStatus] = useState<StatusFilter>("TODAS");
   const [priority, setPriority] = useState<PriorityFilter>("TODAS");
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey>(DEFAULT_SORT);
-  const [urgentOnly, setUrgentOnly] = useState(false);
   const onDone = useCallback(() => {
     void reload();
     setRefreshKey((k) => k + 1);
   }, [reload]);
 
   const all = useMemo(() => requests ?? [], [requests]);
-  const view = useMemo(
-    () => ({ status, priority, query, sort, urgentOnly }),
-    [status, priority, query, sort, urgentOnly],
-  );
+  const view = useMemo(() => ({ status, priority, query, sort }), [status, priority, query, sort]);
   const visible = useMemo(() => filterAndSort(all, view), [all, view]);
   const counts = useMemo(() => countByStatus(all), [all]);
-  const urgentCount = useMemo(() => countUrgent(all), [all]);
   const filtersActive = hasActiveFilters(view);
   const clearFilters = () => {
     setStatus("TODAS");
     setPriority("TODAS");
     setQuery("");
     setSort(DEFAULT_SORT);
-    setUrgentOnly(false);
   };
 
   return (
@@ -213,14 +97,11 @@ export function AnalystDashboard() {
           sort={sort}
           shown={visible.length}
           total={all.length}
-          urgentOnly={urgentOnly}
-          urgentCount={urgentCount}
           filtersActive={filtersActive}
           onStatus={setStatus}
           onPriority={setPriority}
           onQuery={setQuery}
           onSort={setSort}
-          onUrgentOnly={setUrgentOnly}
           onClear={clearFilters}
         />
         {error && <p className="alert error">{error}</p>}
@@ -236,11 +117,11 @@ export function AnalystDashboard() {
               <thead>
                 <tr>
                   <th>Fecha</th>
-                  <th>Solicitante</th>
+                  <th>Cliente</th>
+                  <th>Asesor</th>
                   <th>Documento</th>
                   <th>Ingreso</th>
-                  <th>Monto</th>
-                  <th>Plazo</th>
+                  <th>Monto y plazo</th>
                   <th>Prioridad</th>
                   <th>Buró</th>
                   <th>Estado</th>
@@ -249,13 +130,29 @@ export function AnalystDashboard() {
               </thead>
               <tbody>
                 {visible.map((r) => (
-                  <tr key={r.id} className={isUrgent(r) ? "row-urgent" : undefined}>
-                    <td>{new Date(r.createdAt).toLocaleString("es-GT")}</td>
-                    <td>{r.applicantName}</td>
-                    <td>{r.documentId}</td>
-                    <td>{formatMoney(r.monthlyIncomeCents)}</td>
-                    <td>{formatMoney(r.amountCents)}</td>
-                    <td>{r.termMonths} m</td>
+                  <tr
+                    key={r.id}
+                    className="clickable"
+                    onClick={(e) => {
+                      if (!isInteractive(e.target)) router.push(`/analista/solicitudes/${r.id}`);
+                    }}
+                  >
+                    <td className="nowrap">
+                      {new Date(r.createdAt).toLocaleDateString("es-GT", { dateStyle: "short" })}
+                      <span className="subtle">{new Date(r.createdAt).toLocaleTimeString("es-GT", { timeStyle: "short" })}</span>
+                    </td>
+                    <td>
+                      <Link href={`/analista/solicitudes/${r.id}`} className="client-link" title="Ver el detalle del cliente">
+                        {r.applicantName}
+                      </Link>
+                    </td>
+                    <td>{r.createdByName ?? "—"}</td>
+                    <td className="nowrap">{r.documentId}</td>
+                    <td className="nowrap">{formatMoney(r.monthlyIncomeCents)}</td>
+                    <td className="nowrap">
+                      {formatMoney(r.amountCents)}
+                      <span className="subtle">{r.termMonths} meses</span>
+                    </td>
                     <td>
                       <PriorityCell tenure={r.employmentTenure} />
                     </td>
@@ -264,7 +161,6 @@ export function AnalystDashboard() {
                     </td>
                     <td>
                       <StatusBadge status={r.status} />
-                      {isUrgent(r) && <span className="badge badge-urgente">Urgente</span>}
                       {r.rejectionReason && <div className="reason">Motivo: {r.rejectionReason}</div>}
                     </td>
                     <td>

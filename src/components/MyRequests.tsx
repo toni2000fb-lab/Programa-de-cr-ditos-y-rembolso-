@@ -50,7 +50,7 @@ export function MyRequests({ refreshKey }: { refreshKey: number }) {
             <thead>
               <tr>
                 <th>Fecha</th>
-                <th>Solicitante</th>
+                <th>Cliente</th>
                 <th>Documento</th>
                 <th>Monto</th>
                 <th>Plazo</th>

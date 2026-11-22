@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createRequestSchema, exceedsDebtLimit, rejectSchema } from "@/domain/rules";
 import { canTransition } from "@/domain/stateMachine";
+import { clientProfileInput } from "../fixtures";
 
 const valid = {
   applicantName: "Ana Torres",
@@ -9,6 +10,7 @@ const valid = {
   monthlyIncome: 3000,
   amount: 1200,
   termMonths: 12,
+  ...clientProfileInput(),
 };
 
 describe("Regla del 40% de endeudamiento", () => {

@@ -47,21 +47,18 @@ export interface RequestToolbarProps {
   sort: SortKey;
   shown: number;
   total: number;
-  urgentOnly: boolean;
-  urgentCount: number;
   filtersActive: boolean;
   onStatus: (status: StatusFilter) => void;
   onPriority: (priority: PriorityFilter) => void;
   onQuery: (query: string) => void;
   onSort: (sort: SortKey) => void;
-  onUrgentOnly: (urgentOnly: boolean) => void;
   onClear: () => void;
 }
 
 /** Buscador, selector de estado y selector de orden de la lista de solicitudes. */
 export function RequestToolbar(props: RequestToolbarProps) {
   const id = useId();
-  const { status, priority, query, sort, shown, total, urgentOnly, urgentCount, filtersActive } = props;
+  const { status, priority, query, sort, shown, total, filtersActive } = props;
   return (
     <>
       <div className="toolbar" role="search">
@@ -120,15 +117,6 @@ export function RequestToolbar(props: RequestToolbarProps) {
             ))}
           </select>
         </div>
-        <button
-          type="button"
-          className="toggle"
-          aria-pressed={urgentOnly}
-          title="Mostrar solo las solicitudes marcadas como urgentes"
-          onClick={() => props.onUrgentOnly(!urgentOnly)}
-        >
-          Solo urgentes <span className="count">{urgentCount}</span>
-        </button>
         {filtersActive && (
           <button type="button" onClick={props.onClear}>
             Limpiar filtros

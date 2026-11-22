@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { formatMoney } from "./money";
+import { clientProfileShape, referenceIssues } from "./clientProfile";
+import { formatMoney, MAX_MONEY } from "./money";
 import { EMPLOYMENT_TENURES } from "./priority";
 
 /** Reglas de negocio compartidas por frontend y backend. */
@@ -13,8 +14,6 @@ export const MIN_REJECTION_REASON_LENGTH = 15;
 export const INITIAL_BUDGET_CENTS = 5_000_000; // Q50,000.00
 /** Una consulta de buró sin avanzar durante este tiempo se considera atascada y puede relanzarse. */
 export const BUREAU_STALE_MS = 60_000;
-
-const MAX_MONEY = 10_000_000; // tope razonable para evitar desbordes (10 millones)
 
 /** Regla del 40%: el monto solicitado no puede superar el 40% del ingreso mensual. */
 export function exceedsDebtLimit(amountCents: number, monthlyIncomeCents: number): boolean {
@@ -61,8 +60,12 @@ export const createRequestSchema = z
       .refine((v): v is TermMonths => (ALLOWED_TERMS as readonly number[]).includes(v), {
         error: "El plazo debe ser 6, 12, 24 o 36 meses",
       }),
+    ...clientProfileShape,
   })
   .superRefine((data, ctx) => {
+    for (const issue of referenceIssues(data)) {
+      ctx.addIssue({ code: "custom", path: [issue.path], message: issue.message });
+    }
     const amountCents = Math.round(data.amount * 100);
     const incomeCents = Math.round(data.monthlyIncome * 100);
     if (exceedsDebtLimit(amountCents, incomeCents)) {
@@ -94,8 +97,4 @@ export const approveSchema = z.object({
 
 export const reviewSchema = z.object({
   comment: z.string().trim().max(1000).optional(),
-});
-
-export const urgentSchema = z.object({
-  urgent: z.boolean({ error: "Indica si la solicitud es urgente (true o false)" }),
 });

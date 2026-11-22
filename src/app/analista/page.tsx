@@ -7,6 +7,6 @@ export const dynamic = "force-dynamic";
 export default async function AnalistaPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (user.role !== "ANALISTA") redirect("/solicitante");
+  if (user.role !== "ANALISTA") redirect("/asesor");
   return <AnalystDashboard />;
 }
