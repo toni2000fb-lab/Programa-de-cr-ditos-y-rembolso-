@@ -1,6 +1,6 @@
 import { priorityFromTenure, priorityRank, type EmploymentTenureValue, type Priority } from "./priority";
 import type { RequestStatusValue } from "./stateMachine";
-import { PENDING_STATUSES, REQUEST_STATUSES } from "./stateMachine";
+import { REQUEST_STATUSES } from "./stateMachine";
 
 /** Lógica pura (sin React) para filtrar, buscar y ordenar la lista de solicitudes del analista. */
 
@@ -39,8 +39,6 @@ export interface ViewableRequest {
   createdAt: string;
   /** Antigüedad laboral declarada. De ella sale la prioridad. Puede ser nula en solicitudes viejas. */
   employmentTenure?: EmploymentTenureValue | null;
-  /** Marca interna del analista. Puede venir sin definir si quien consulta no es analista. */
-  urgent?: boolean;
 }
 
 export interface ViewOptions {
@@ -48,13 +46,6 @@ export interface ViewOptions {
   priority: PriorityFilter;
   query: string;
   sort: SortKey;
-  /** Mostrar solo las solicitudes urgentes. */
-  urgentOnly: boolean;
-}
-
-/** Una solicitud cuenta como urgente solo mientras sigue abierta; al resolverse la marca deja de importar. */
-export function isUrgent(request: Pick<ViewableRequest, "status" | "urgent">): boolean {
-  return request.urgent === true && PENDING_STATUSES.includes(request.status);
 }
 
 /** Minúsculas y sin tildes, para que "perez" encuentre "Pérez". */
@@ -93,10 +84,7 @@ const COMPARATORS: Record<SortKey, (a: ViewableRequest, b: ViewableRequest) => n
   PRIORIDAD_ASC: (a, b) => byPriority(a, b) || byDate(a, b),
 };
 
-/** Las urgentes van siempre primero; dentro de cada grupo manda el orden elegido. */
-const urgentFirst = (a: ViewableRequest, b: ViewableRequest) => Number(isUrgent(b)) - Number(isUrgent(a));
-
-/** Filtra por estado, urgencia y búsqueda, y ordena. No modifica el arreglo original. */
+/** Filtra por estado, prioridad y búsqueda, y ordena. No modifica el arreglo original. */
 export function filterAndSort<T extends ViewableRequest>(requests: readonly T[], options: ViewOptions): T[] {
   const primary = COMPARATORS[options.sort];
   return requests
@@ -104,14 +92,9 @@ export function filterAndSort<T extends ViewableRequest>(requests: readonly T[],
       (r) =>
         (options.status === "TODAS" || r.status === options.status) &&
         (options.priority === "TODAS" || priorityFromTenure(r.employmentTenure) === options.priority) &&
-        (!options.urgentOnly || isUrgent(r)) &&
         matchesQuery(r, options.query),
     )
-    .sort((a, b) => urgentFirst(a, b) || primary(a, b) || byDate(b, a) || a.id.localeCompare(b.id)); // desempate estable
-}
-
-export function countUrgent(requests: readonly ViewableRequest[]): number {
-  return requests.filter(isUrgent).length;
+    .sort((a, b) => primary(a, b) || byDate(b, a) || a.id.localeCompare(b.id)); // desempate estable
 }
 
 export function countByStatus(requests: readonly ViewableRequest[]): Record<RequestStatusValue, number> {
@@ -125,7 +108,6 @@ export function hasActiveFilters(options: ViewOptions): boolean {
     options.status !== "TODAS" ||
     options.priority !== "TODAS" ||
     options.query.trim() !== "" ||
-    options.sort !== DEFAULT_SORT ||
-    options.urgentOnly
+    options.sort !== DEFAULT_SORT
   );
 }

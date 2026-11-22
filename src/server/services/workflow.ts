@@ -1,7 +1,7 @@
 import type { CreditRequest, Prisma, RequestStatus } from "@prisma/client";
 import type { Db } from "@/server/db";
 import { DomainError } from "@/domain/errors";
-import { canTransition, isFinal, PENDING_STATUSES, STATUS_LABEL } from "@/domain/stateMachine";
+import { canTransition, isFinal, STATUS_LABEL } from "@/domain/stateMachine";
 import { rejectSchema } from "@/domain/rules";
 import { formatMoney } from "@/domain/money";
 import type { Actor } from "./types";
@@ -85,18 +85,18 @@ function baseDto(r: CreditRequest) {
   };
 }
 
+/** Solicitud con el nombre del asesor que la registró, cuando la consulta lo trae. */
+type RequestRow = CreditRequest & { createdBy?: { name: string } | null };
+
 export type RequestDTO = ReturnType<typeof baseDto> & {
-  /** Marca interna de urgencia. Solo se incluye para analistas. */
-  urgent?: boolean;
+  /** Nombre del asesor de crédito que registró la solicitud. Solo viene en las consultas que lo piden. */
+  createdByName?: string;
 };
 
-/**
- * Convierte una solicitud al formato de la API. La marca de urgencia es una herramienta interna
- * del analista, así que solo se envía cuando quien consulta es analista.
- */
-export function serializeRequest(r: CreditRequest, viewer?: Pick<Actor, "role">): RequestDTO {
+/** Convierte una solicitud al formato de la API. */
+export function serializeRequest(r: RequestRow): RequestDTO {
   const dto = baseDto(r);
-  return viewer?.role === "ANALISTA" ? { ...dto, urgent: r.urgent } : dto;
+  return r.createdBy ? { ...dto, createdByName: r.createdBy.name } : dto;
 }
 
 export async function startReview(db: Db, actor: Actor, id: string, comment?: string) {
@@ -110,43 +110,7 @@ export async function startReview(db: Db, actor: Actor, id: string, comment?: st
       toStatus: "EN_REVISION",
       comment: comment?.trim() || "Solicitud tomada para revisión",
     });
-    return serializeRequest(updated, actor);
-  });
-}
-
-/**
- * Marca o desmarca una solicitud como urgente. Solo la cambia un analista y solo mientras la
- * solicitud sigue abierta. Es idempotente: pedir el valor que ya tiene no cambia nada ni deja
- * rastro. Cuando sí cambia, queda en la auditoría con el estado actual como anterior y nuevo.
- */
-export async function setUrgent(db: Db, actor: Actor, id: string, urgent: boolean) {
-  assertAnalyst(actor);
-  return db.$transaction(async (tx) => {
-    const { count } = await tx.creditRequest.updateMany({
-      where: { id, status: { in: [...PENDING_STATUSES] }, urgent: !urgent },
-      data: { urgent },
-    });
-    const current = await tx.creditRequest.findUnique({ where: { id } });
-    if (!current) throw new DomainError("NOT_FOUND", "Solicitud no encontrada");
-    if (count === 0) {
-      if (!PENDING_STATUSES.includes(current.status)) {
-        throw new DomainError(
-          "INVALID_TRANSITION",
-          `La solicitud ya está ${STATUS_LABEL[current.status].toLowerCase()}: la marca de urgente solo se puede cambiar mientras está abierta`,
-          { status: current.status },
-        );
-      }
-      return serializeRequest(current, actor); // ya tenía ese valor
-    }
-    // La fila quedó bloqueada por el UPDATE hasta el commit, así que el estado leído es el vigente.
-    await recordTransition(tx, {
-      requestId: id,
-      actor,
-      fromStatus: current.status,
-      toStatus: current.status,
-      comment: urgent ? "Marcada como urgente" : "Se quitó la marca de urgente",
-    });
-    return serializeRequest(current, actor);
+    return serializeRequest(updated);
   });
 }
 
@@ -189,7 +153,7 @@ export async function approveRequest(db: Db, actor: Actor, id: string, opts: Dec
       toStatus: "APROBADA",
       comment: opts.comment?.trim() || `Aprobada por ${formatMoney(approved.amountCents)}`,
     });
-    return { request: serializeRequest(approved, actor), budget: { availableCents: budget.availableCents } };
+    return { request: serializeRequest(approved), budget: { availableCents: budget.availableCents } };
   });
 }
 
@@ -213,6 +177,6 @@ export async function rejectRequest(
       toStatus: "RECHAZADA",
       comment: reason,
     });
-    return { request: serializeRequest(rejected, actor) };
+    return { request: serializeRequest(rejected) };
   });
 }

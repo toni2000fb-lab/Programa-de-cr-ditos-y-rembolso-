@@ -48,20 +48,23 @@ nombre que se muestra, porque quien solicita el crédito es el cliente y no quie
 
 ### Flujo para probarlo
 
-1. Entra como **Ana** y registra la solicitud de un cliente, eligiendo el tiempo en su trabajo actual. La tabla de
-   amortización se recalcula mientras escribes.
-   Prueba un monto mayor al 40 % del ingreso, o repetir el mismo documento, para ver los bloqueos.
+1. Entra como **Ana** y registra la solicitud de un cliente. El formulario pide, todo obligatorio, los
+   datos personales, el trabajo y los ingresos (incluido el tiempo en su trabajo actual), el crédito,
+   dos referencias y marcar los cuatro documentos que el cliente entregó. La tabla de amortización se
+   recalcula mientras escribes.
+   Prueba un monto mayor al 40 % del ingreso, repetir el mismo documento o dejar un documento sin
+   marcar, para ver los bloqueos.
 2. La solicitud aparece con el estado del buró ("Consultando buró…"). La consulta se hace en
    segundo plano con reintentos, así que puedes seguir navegando.
 3. Entra como **Carla**: "Tomar en revisión" → "Aprobar" (el monto se descuenta del presupuesto) o
    "Rechazar" (motivo de al menos 15 caracteres).
    En la lista puedes pulsar las tarjetas de estado para filtrar, buscar por nombre, documento o ID,
-   y ordenar por fecha, monto o nombre. Con "Marcar urgente" una solicitud abierta aparece primero y
-   con su etiqueta, y el botón "Solo urgentes" deja únicamente esas. Cada solicitud muestra además su
+   y ordenar por fecha, monto o nombre. Cada solicitud muestra el asesor que la registró y su
    prioridad (Alta, Media o Baja), que puedes filtrar y usar para ordenar.
-   Al pulsar la fila de un cliente se abre su **detalle**: datos del cliente, crédito solicitado,
-   verificación de las condiciones para aprobar, buró, historial de ese documento, tabla de
-   amortización y seguimiento. Desde ahí también se puede revisar, aprobar, rechazar y marcar urgente.
+   Al pulsar la fila de un cliente se abre su **detalle**: datos personales, trabajo y finanzas,
+   crédito solicitado, referencias, documentos recibidos, verificación de las condiciones para
+   aprobar, buró, historial de ese documento, tabla de amortización y seguimiento. Desde ahí
+   también se puede tomar en revisión, aprobar y rechazar.
 4. Abre **Auditoría** en otra pestaña: las transiciones aparecen en vivo.
 
 ### Desarrollo local (la app fuera de Docker)
@@ -103,10 +106,13 @@ La base `creditos_test` la crea el contenedor de Postgres al inicializarse
 | `tests/integration/approval.test.ts` | **20 aprobaciones simultáneas** de la misma solicitud: sólo una se aplica, el presupuesto baja una vez y hay una sola entrada de auditoría. Doble clic con la **misma clave de idempotencia** devuelve la misma respuesta. Varias solicitudes compitiendo por el presupuesto **nunca lo dejan negativo**. No se puede aprobar una rechazada. Un asesor de crédito no puede aprobar. La auditoría no se puede modificar ni borrar. |
 | `tests/integration/history.test.ts` | Regla de los 30 días (incluidos **envíos simultáneos** del mismo documento), el mensaje exacto del bloqueo y la validación del 40 % en el servidor. |
 | `tests/unit/rules.test.ts` | Límite del 40 % (en centavos), plazos válidos, motivo de rechazo y máquina de estados. |
+| `tests/unit/client-profile.test.ts` | Datos obligatorios del cliente: mayoría de edad (con cumpleaños y años bisiestos), teléfono de 8 dígitos, importes en cero pero no negativos, los cuatro documentos y referencias distintas. |
+| `tests/integration/request-detail.test.ts` | El detalle del cliente contra PostgreSQL: datos del cliente, asesor, historial por documento, seguimiento en orden y solicitudes antiguas sin esos datos. |
 | `tests/unit/amortization.test.ts` | Cuota fija con 1.5 % mensual y cuadre de capital y saldo. |
 | `tests/unit/retry.test.ts` | Reintentos ante 503, sin reintentos ante 4xx y backoff exponencial. |
 | `tests/unit/session.test.ts` | Rechazo de cookies de sesión manipuladas o expiradas. |
 | `tests/integration/routes.test.ts` | Permisos **en las rutas HTTP**: sin sesión 401, asesor de crédito 403 en cada ruta de analista, analista 403 al crear, cookie manipulada o de usuario inexistente 401, visibilidad por asesor, detalle del cliente e idempotencia de la aprobación por HTTP. |
+| Los datos del cliente en `routes.test.ts` | Se guardan junto con la solicitud (importes en centavos, teléfonos normalizados), faltar cualquiera responde 400, un bloqueo por historial no deja datos huérfanos y el listado no los expone. |
 | `tests/integration/idempotency.test.ts` | Las claves de idempotencia de más de 24 h se limpian solas y las recientes se conservan. |
 | `tests/unit/bureau-retry.test.ts` | Cuándo el analista puede relanzar el buró: fallido o atascado más de 60 s, nunca completado ni en solicitudes resueltas. |
 | `tests/unit/bureau-route.test.ts` | El buró simulado exige su credencial: 401 sin token o con uno incorrecto. |
@@ -232,16 +238,30 @@ de la petición en la API. La regla de historial se consulta en vivo al escribir
   solicitudes anteriores a este dato muestran "Sin dato" y van al final al ordenar por prioridad. Con
   la misma prioridad se atiende primero la que lleva más tiempo esperando. La prioridad solo ordena la
   cola, no cambia ninguna regla: el 40 %, los 30 días, el buró y el presupuesto se aplican igual.
-- **Marca de urgente**: es una herramienta interna del analista para atender antes a un cliente
-  importante. Solo se puede cambiar mientras la solicitud está abierta (`CREADA` o `EN_REVISION`), el
-  asesor de crédito no la ve y no cambia ninguna regla: el 40 %, los 30 días, el buró y el presupuesto se
-  aplican igual. Cada cambio queda en la auditoría con el mismo estado como anterior y nuevo.
+- **Marca de urgente**: se quitó. La prioridad de atención sale solo de la antigüedad laboral. La
+  columna `urgent` se elimina con una migración; los movimientos que ya dejó en la auditoría se
+  conservan porque ese registro es inmutable.
+- **Datos obligatorios del cliente**: para que el analista tenga con qué decidir, el asesor reúne al
+  registrar la solicitud la fecha de nacimiento, teléfono y dirección; lugar de trabajo, puesto y tipo
+  de ingreso; otros ingresos, gastos mensuales y cuotas de deudas actuales (se escribe 0 si no hay);
+  destino del crédito y garantía; dos referencias con su teléfono; y marca los cuatro documentos
+  recibidos (copia del DPI, comprobante de domicilio, constancia laboral y boletas de pago o estados
+  de cuenta). El número de DPI es el campo "Documento de identidad" que ya existía. Las reglas de
+  apoyo son que el cliente sea mayor de 18 años, que los teléfonos tengan 8 dígitos (se aceptan
+  guiones, espacios y el prefijo +502) y que las referencias no repitan el teléfono del cliente ni el
+  de la otra referencia. Las casillas de documentos son obligatorias: no se puede registrar la
+  solicitud sin marcar los cuatro. Si la cooperativa quisiera permitir registrar con documentos
+  pendientes, basta con quitar esa validación en `src/domain/clientProfile.ts`.
+  Los datos viven en la tabla `client_profiles`, aparte de la solicitud, para que las solicitudes
+  anteriores simplemente no tengan perfil y el detalle lo explique. No cambian ninguna regla de
+  aprobación. El sistema no guarda los archivos, solo que el asesor los recibió.
 - **Detalle del cliente**: es solo para analistas y reúne en una pantalla lo que hoy se sabe de la
   solicitud. El bloque "Verificación para aprobar" repite las mismas condiciones que el servidor
   exige al aprobar (en revisión, buró completado y presupuesto suficiente) más la regla del 40 %,
   para que el analista vea de un vistazo qué falta. No decide nada: el servidor vuelve a validar
-  todo al aprobar. La cuota sobre el ingreso se muestra como dato informativo, sin umbral, porque
-  la especificación no define uno.
+  todo al aprobar. La cuota sobre el ingreso y el margen mensual del cliente (ingresos menos gastos y
+  cuotas actuales) se muestran como datos informativos, sin umbral, porque la especificación no
+  define uno. Los datos personales solo los ve el analista: el listado de solicitudes no los incluye.
 - **"Tomar en revisión"** es una acción explícita del analista (`CREADA → EN_REVISION`) y queda
   auditada como cualquier otra transición.
 
@@ -251,14 +271,13 @@ de la petición en la API. La regla de historial se consulta en vivo al escribir
 |---|---|---|---|
 | POST | `/api/auth/login` · `/api/auth/logout` | — | Iniciar / cerrar sesión con un usuario de prueba |
 | GET | `/api/requests` | ambos | Listado (el asesor solo ve las suyas) |
-| GET | `/api/requests/:id` | Analista | Detalle del cliente: solicitud, asesor, historial del documento, auditoría y presupuesto |
-| POST | `/api/requests` | Asesor de crédito | Crear solicitud (exige `employmentTenure`) |
+| GET | `/api/requests/:id` | Analista | Detalle del cliente: solicitud, datos del cliente, asesor, historial del documento, auditoría y presupuesto |
+| POST | `/api/requests` | Asesor de crédito | Crear solicitud (exige `employmentTenure` y todos los datos del cliente) |
 | GET | `/api/requests/eligibility?documentId=` | Asesor de crédito | Comprobar la regla de 30 días |
 | POST | `/api/requests/:id/review` | Analista | `CREADA → EN_REVISION` |
 | POST | `/api/requests/:id/approve` | Analista | Aprobar (requiere `Idempotency-Key`) |
 | POST | `/api/requests/:id/reject` | Analista | Rechazar con `{ reason }` (requiere `Idempotency-Key`) |
 | POST | `/api/requests/:id/bureau` | Analista | Volver a consultar el buró |
-| POST | `/api/requests/:id/urgent` | Analista | Marcar o quitar la marca de urgente con `{ urgent: true }` |
 | GET | `/api/budget` | Analista | Presupuesto global |
 | GET | `/api/audit` · `/api/audit/stream` | Analista | Auditoría (listado / SSE) |
 | GET | `/api/bureau/:documentId` | token interno | Buró simulado (servicio "externo"), cabecera `x-internal-token` |
@@ -281,8 +300,9 @@ real, define `SESSION_SECRET`.
 
 ## Limitaciones conocidas
 
-- La antigüedad laboral es un dato declarado: el sistema no guarda ni verifica la constancia laboral.
-  El formulario recuerda que debe poder respaldarse y la comprobación queda en manos del analista.
+- La antigüedad laboral y los demás datos del cliente son declarados: el sistema no guarda los
+  documentos ni verifica que sean auténticos. El asesor marca que los recibió y la comprobación queda
+  en manos del analista.
 - La auditoría en vivo consulta la base de datos cada 1.5 s por cada panel abierto. Con muchos
   analistas conectados convendría `LISTEN/NOTIFY` de PostgreSQL.
 - El contenedor de la app se ejecuta como root; para producción habría que añadir un usuario sin

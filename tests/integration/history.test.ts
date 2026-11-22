@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import { createCreditRequest } from "@/server/services/credit-requests";
 import { rejectRequest, startReview } from "@/server/services/workflow";
+import { clientProfileInput } from "../fixtures";
 import { analista, db, seedActors, solicitante, uniqueDoc } from "./helpers";
 
 beforeAll(seedActors);
@@ -14,6 +15,7 @@ const input = (documentId: string) => ({
   monthlyIncome: 5000,
   amount: 1000,
   termMonths: 24,
+  ...clientProfileInput(),
 });
 
 describe("Restricción por historial reciente (30 días)", () => {

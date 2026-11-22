@@ -66,6 +66,28 @@ export function computeFinancials(input: Pick<EvaluationInput, "amountCents" | "
   };
 }
 
+/** Lo que le queda al cliente cada mes, con los datos que declaró el asesor. Es informativo: no hay un mínimo. */
+export interface MonthlyCapacity {
+  /** Ingreso mensual más otros ingresos. */
+  totalIncomeCents: number;
+  /** Gastos mensuales más cuotas de deudas actuales. */
+  commitmentsCents: number;
+  /** Ingreso total menos gastos y cuotas actuales. Puede ser negativo. */
+  marginCents: number;
+  /** El margen después de pagar la cuota estimada de este crédito. Puede ser negativo. */
+  marginAfterPaymentCents: number;
+}
+
+export function computeCapacity(
+  profile: { monthlyIncomeCents: number; otherIncomeCents: number; monthlyExpensesCents: number; currentDebtPaymentCents: number },
+  monthlyPaymentCents: number,
+): MonthlyCapacity {
+  const totalIncomeCents = profile.monthlyIncomeCents + profile.otherIncomeCents;
+  const commitmentsCents = profile.monthlyExpensesCents + profile.currentDebtPaymentCents;
+  const marginCents = totalIncomeCents - commitmentsCents;
+  return { totalIncomeCents, commitmentsCents, marginCents, marginAfterPaymentCents: marginCents - monthlyPaymentCents };
+}
+
 function bureauCheck(input: EvaluationInput): Pick<Check, "status" | "detail"> {
   switch (input.bureauStatus) {
     case "COMPLETADO":

@@ -2,7 +2,14 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { evaluateRequest, type Check, type CheckStatus } from "@/domain/evaluation";
+import {
+  ageOn,
+  CLIENT_DOCUMENT_LABEL,
+  CLIENT_DOCUMENTS,
+  INCOME_TYPE_LABEL,
+  type ClientProfileDTO,
+} from "@/domain/clientProfile";
+import { computeCapacity, evaluateRequest, type Check, type CheckStatus } from "@/domain/evaluation";
 import { formatMoney } from "@/domain/money";
 import { TENURE_LABEL } from "@/domain/priority";
 import { ROLE_LABEL } from "@/domain/roles";
@@ -14,6 +21,94 @@ import { RequestActions } from "./RequestActions";
 import { BureauCell, PriorityCell, StatusBadge } from "./StatusBadge";
 
 const dateTime = (iso: string) => new Date(iso).toLocaleString("es-GT");
+
+/** Fecha de nacimiento en texto, con la edad. El formato YYYY-MM-DD se lee en UTC para que no corra un día. */
+function birthDateText(birthDate: string): string {
+  const [y, m, d] = birthDate.split("-").map(Number) as [number, number, number];
+  const text = new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("es-GT", {
+    timeZone: "UTC",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+  const age = ageOn(birthDate);
+  return age === null ? text : `${text} (${age} años)`;
+}
+
+/** Importe que puede salir negativo (el margen del cliente): se marca para que se note. */
+function Signed({ cents }: { cents: number }) {
+  return <span className={cents < 0 ? "neg" : undefined}>{formatMoney(cents)}</span>;
+}
+
+function ProfileSections({
+  profile,
+  monthlyIncomeCents,
+  monthlyPaymentCents,
+  advisor,
+}: {
+  profile: ClientProfileDTO;
+  monthlyIncomeCents: number;
+  monthlyPaymentCents: number;
+  advisor: string;
+}) {
+  const capacity = computeCapacity({ monthlyIncomeCents, ...profile }, monthlyPaymentCents);
+  return (
+    <>
+      <section className="card">
+        <h3>Trabajo y finanzas</h3>
+        <dl className="kv">
+          <Field label="Lugar de trabajo">{profile.employerName}</Field>
+          <Field label="Puesto">{profile.jobTitle}</Field>
+          <Field label="Tipo de ingreso">{INCOME_TYPE_LABEL[profile.incomeType]}</Field>
+          <Field label="Ingreso mensual declarado">{formatMoney(monthlyIncomeCents)}</Field>
+          <Field label="Otros ingresos">{formatMoney(profile.otherIncomeCents)}</Field>
+          <Field label="Gastos mensuales">{formatMoney(profile.monthlyExpensesCents)}</Field>
+          <Field label="Cuotas de deudas actuales">{formatMoney(profile.currentDebtPaymentCents)}</Field>
+          <Field label="Margen mensual">
+            <Signed cents={capacity.marginCents} />
+          </Field>
+          <Field label="Margen tras la cuota de este crédito">
+            <Signed cents={capacity.marginAfterPaymentCents} />
+          </Field>
+        </dl>
+        <p className="hint">
+          El margen es ingreso total menos gastos y cuotas actuales. Es solo informativo: el sistema no define un mínimo.
+        </p>
+      </section>
+
+      <section className="card">
+        <h3>Referencias</h3>
+        <dl className="kv">
+          {profile.references.map((ref, i) => (
+            <Field key={i} label={`Referencia ${i + 1}`}>
+              {ref.name} <span className="muted">· {ref.phone}</span>
+            </Field>
+          ))}
+        </dl>
+      </section>
+
+      <section className="card">
+        <h3>Documentos recibidos</h3>
+        <ul className="check-list">
+          {CLIENT_DOCUMENTS.map((d) => {
+            const received = profile.receivedDocuments.includes(d);
+            return (
+              <li key={d} className={`check ${received ? "check-ok" : "check-fail"}`}>
+                <span className="check-icon" role="img" aria-label={received ? "Recibido" : "No recibido"}>
+                  {received ? "✓" : "✗"}
+                </span>
+                <strong>{CLIENT_DOCUMENT_LABEL[d]}</strong>
+              </li>
+            );
+          })}
+        </ul>
+        <p className="hint">
+          Marcados por {advisor} al registrar la solicitud. El sistema no guarda los archivos, solo que se recibieron.
+        </p>
+      </section>
+    </>
+  );
+}
 
 /** Carga el detalle y lo mantiene al día; más seguido mientras el buró está consultando. */
 function usePolledDetail(id: string) {
@@ -92,7 +187,7 @@ export function ClientDetail({ id }: { id: string }) {
     return <section className="card">{error ? <p className="alert error">{error}</p> : <p className="muted">Cargando…</p>}</section>;
   }
 
-  const { request: r, createdBy, history, audit, availableBudgetCents } = detail;
+  const { request: r, profile, createdBy, history, audit, availableBudgetCents } = detail;
   const evaluation = evaluateRequest({
     status: r.status,
     amountCents: r.amountCents,
@@ -121,7 +216,6 @@ export function ClientDetail({ id }: { id: string }) {
             </p>
             <div className="row wrap">
               <StatusBadge status={r.status} />
-              {open && r.urgent && <span className="badge badge-urgente">Urgente</span>}
             </div>
             {r.rejectionReason && <p className="reason">Motivo del rechazo: {r.rejectionReason}</p>}
           </div>
@@ -151,7 +245,14 @@ export function ClientDetail({ id }: { id: string }) {
               <PriorityCell tenure={r.employmentTenure} />
             </Field>
             <Field label="Ingreso mensual declarado">{formatMoney(r.monthlyIncomeCents)}</Field>
-            <Field label="Registrada por">
+            {profile && (
+              <>
+                <Field label="Fecha de nacimiento">{birthDateText(profile.birthDate)}</Field>
+                <Field label="Teléfono">{profile.phone}</Field>
+                <Field label="Dirección">{profile.address}</Field>
+              </>
+            )}
+            <Field label="Asesor que la registró">
               {createdBy.name} <span className="muted">({ROLE_LABEL[createdBy.role]})</span>
             </Field>
           </dl>
@@ -169,8 +270,31 @@ export function ClientDetail({ id }: { id: string }) {
             <Field label="Cuota sobre el ingreso">{f.paymentToIncomePct} %</Field>
             <Field label="Total de intereses">{formatMoney(f.totalInterestCents)}</Field>
             <Field label="Total a pagar">{formatMoney(f.totalPaidCents)}</Field>
+            {profile && (
+              <>
+                <Field label="Destino del crédito">{profile.purpose}</Field>
+                <Field label="Garantía que ofrece">{profile.guarantee}</Field>
+              </>
+            )}
           </dl>
         </section>
+
+        {profile ? (
+          <ProfileSections
+            profile={profile}
+            monthlyIncomeCents={r.monthlyIncomeCents}
+            monthlyPaymentCents={f.monthlyPaymentCents}
+            advisor={createdBy.name}
+          />
+        ) : (
+          <section className="card">
+            <h3>Información adicional del cliente</h3>
+            <p className="muted">
+              Esta solicitud se registró antes de que se pidieran los datos de contacto, trabajo, finanzas, referencias y
+              documentos del cliente.
+            </p>
+          </section>
+        )}
 
         <section className="card">
           <h3>Verificación para aprobar</h3>

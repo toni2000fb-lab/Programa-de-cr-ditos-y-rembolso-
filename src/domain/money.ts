@@ -7,6 +7,9 @@
 export const CURRENCY_CODE = "GTQ";
 export const CURRENCY_SYMBOL = "Q";
 
+/** Tope de cualquier importe que se escribe en un formulario (10 millones), para evitar desbordes. */
+export const MAX_MONEY = 10_000_000;
+
 export function toCents(amount: number): number {
   return Math.round(amount * 100);
 }

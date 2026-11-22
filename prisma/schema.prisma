@@ -27,6 +27,21 @@ enum EmploymentTenure {
   TRES_ANIOS_O_MAS
 }
 
+/// Cómo obtiene sus ingresos el cliente.
+enum IncomeType {
+  PLANILLA
+  NEGOCIO_PROPIO
+  OTRO
+}
+
+/// Documentos que el asesor recibe del cliente (src/domain/clientProfile.ts). Solo se guarda que se recibieron.
+enum ClientDocument {
+  COPIA_DPI
+  COMPROBANTE_DOMICILIO
+  CONSTANCIA_LABORAL
+  COMPROBANTE_INGRESOS
+}
+
 enum BureauStatus {
   NO_CONSULTADO
   CONSULTANDO
@@ -60,9 +75,6 @@ model CreditRequest {
   rejectionReason    String?       @map("rejection_reason")
   decidedAt          DateTime?     @map("decided_at")
 
-  /// Marca interna del analista para atender antes. Solo aplica a solicitudes abiertas y no la ve el solicitante.
-  urgent Boolean @default(false)
-
   bureauStatus    BureauStatus @default(NO_CONSULTADO) @map("bureau_status")
   bureauScore     Int?         @map("bureau_score")
   bureauAttempts  Int          @default(0) @map("bureau_attempts")
@@ -75,10 +87,37 @@ model CreditRequest {
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   auditLogs AuditLog[]
+  /// Datos del cliente. Nulo en solicitudes anteriores a que se pidieran; la API los exige al crear.
+  profile   ClientProfile?
 
   @@index([documentId, createdAt])
   @@index([createdById])
   @@map("credit_requests")
+}
+
+/// Datos del cliente que reúne el asesor al registrar la solicitud. Los importes van en centavos.
+model ClientProfile {
+  requestId               String         @id @map("request_id") @db.Uuid
+  request                 CreditRequest  @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  birthDate               DateTime       @map("birth_date") @db.Date
+  phone                   String
+  address                 String
+  employerName            String         @map("employer_name")
+  jobTitle                String         @map("job_title")
+  incomeType              IncomeType     @map("income_type")
+  otherIncomeCents        Int            @map("other_income_cents")
+  monthlyExpensesCents    Int            @map("monthly_expenses_cents")
+  currentDebtPaymentCents Int            @map("current_debt_payment_cents")
+  purpose                 String
+  guarantee               String
+  reference1Name          String         @map("reference1_name")
+  reference1Phone         String         @map("reference1_phone")
+  reference2Name          String         @map("reference2_name")
+  reference2Phone         String         @map("reference2_phone")
+  receivedDocuments       ClientDocument[] @default([]) @map("received_documents")
+  createdAt               DateTime       @default(now()) @map("created_at")
+
+  @@map("client_profiles")
 }
 
 /// Registro inmutable: un trigger en la BD rechaza UPDATE y DELETE.

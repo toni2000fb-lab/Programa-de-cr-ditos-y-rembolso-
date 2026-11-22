@@ -1,11 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   countByStatus,
-  countUrgent,
   DEFAULT_SORT,
   filterAndSort,
   hasActiveFilters,
-  isUrgent,
   matchesQuery,
   normalizeText,
   type PriorityFilter,
@@ -39,7 +37,6 @@ const run = (
     status?: ViewableRequest["status"] | "TODAS";
     priority?: PriorityFilter;
     query?: string;
-    urgentOnly?: boolean;
   } = {},
 ) =>
   ids(
@@ -48,7 +45,6 @@ const run = (
       query: extra.query ?? "",
       sort,
       priority: extra.priority ?? "TODAS",
-      urgentOnly: extra.urgentOnly ?? false,
     }),
   );
 
@@ -117,60 +113,20 @@ describe("Orden de la lista", () => {
 
   it("no modifica el arreglo original", () => {
     const copy = [...data];
-    filterAndSort(data, { status: "TODAS", query: "", sort: "MONTO_ASC", priority: "TODAS", urgentOnly: false });
+    filterAndSort(data, { status: "TODAS", query: "", sort: "MONTO_ASC", priority: "TODAS" });
     expect(data).toEqual(copy);
   });
 });
 
 describe("Filtros activos", () => {
   it("detecta cuándo hay algo distinto al estado inicial", () => {
-    const base = { status: "TODAS", query: "", sort: DEFAULT_SORT, priority: "TODAS", urgentOnly: false } as const;
+    const base = { status: "TODAS", query: "", sort: DEFAULT_SORT, priority: "TODAS" } as const;
     expect(hasActiveFilters(base)).toBe(false);
     expect(hasActiveFilters({ ...base, status: "APROBADA" })).toBe(true);
     expect(hasActiveFilters({ ...base, query: "ana" })).toBe(true);
     expect(hasActiveFilters({ ...base, query: "  " })).toBe(false);
     expect(hasActiveFilters({ ...base, sort: "MONTO_ASC" })).toBe(true);
-    expect(hasActiveFilters({ ...base, priority: "TODAS", urgentOnly: true })).toBe(true);
-  });
-});
-
-describe("Marca de urgente", () => {
-  // r2 (en revisión) y r3 (creada) urgentes; r1 aprobada con marca vieja; r4 rechazada sin marca.
-  const flagged: ViewableRequest[] = [
-    { ...data[0]!, urgent: true },
-    { ...data[1]!, urgent: true },
-    { ...data[2]!, urgent: true },
-    { ...data[3]! },
-  ];
-  const runFlagged = (sort: SortKey, urgentOnly = false) =>
-    ids(filterAndSort(flagged, { status: "TODAS", query: "", sort, priority: "TODAS", urgentOnly }));
-
-  it("solo cuenta como urgente una solicitud abierta con la marca puesta", () => {
-    expect(isUrgent(flagged[1]!)).toBe(true); // en revisión
-    expect(isUrgent(flagged[2]!)).toBe(true); // creada
-    expect(isUrgent(flagged[0]!)).toBe(false); // aprobada: la marca ya no importa
-    expect(isUrgent(flagged[3]!)).toBe(false); // sin marca
-    expect(isUrgent({ status: "CREADA" })).toBe(false); // sin el campo, como lo recibe un solicitante
-    expect(countUrgent(flagged)).toBe(2);
-  });
-
-  it("las urgentes van primero y dentro de cada grupo se respeta el orden elegido", () => {
-    expect(runFlagged("FECHA_DESC")).toEqual(["r3", "r2", "r4", "r1"]);
-    expect(runFlagged("FECHA_ASC")).toEqual(["r2", "r3", "r1", "r4"]);
-    expect(runFlagged("MONTO_ASC")).toEqual(["r2", "r3", "r4", "r1"]);
-    expect(runFlagged("NOMBRE_DESC")).toEqual(["r2", "r3", "r4", "r1"]);
-  });
-
-  it("el filtro de solo urgentes oculta el resto y se combina con estado y búsqueda", () => {
-    expect(runFlagged("FECHA_DESC", true)).toEqual(["r3", "r2"]);
-    expect(ids(filterAndSort(flagged, { status: "EN_REVISION", query: "", sort: "FECHA_DESC", priority: "TODAS", urgentOnly: true }))).toEqual(["r2"]);
-    expect(ids(filterAndSort(flagged, { status: "TODAS", query: "alvaro", sort: "FECHA_DESC", priority: "TODAS", urgentOnly: true }))).toEqual(["r3"]);
-    // r1 sigue marcada pero está aprobada, así que no aparece como urgente
-    expect(ids(filterAndSort(flagged, { status: "APROBADA", query: "", sort: "FECHA_DESC", priority: "TODAS", urgentOnly: true }))).toEqual([]);
-  });
-
-  it("sin ninguna marca el orden no cambia", () => {
-    expect(run("FECHA_DESC")).toEqual(["r4", "r1", "r3", "r2"]);
+    expect(hasActiveFilters({ ...base, priority: "ALTA" })).toBe(true);
   });
 });
 
@@ -183,8 +139,8 @@ describe("Prioridad por antigüedad laboral", () => {
     req("p4", { applicantName: "Cuatro", employmentTenure: null, createdAt: "2026-11-04T09:00:00.000Z" }),
     req("p5", { applicantName: "Cinco", employmentTenure: "TRES_ANIOS_O_MAS", createdAt: "2026-11-01T09:00:00.000Z" }),
   ];
-  const runP = (sort: SortKey, priority: PriorityFilter = "TODAS", source = pdata) =>
-    ids(filterAndSort(source, { status: "TODAS", priority, query: "", sort, urgentOnly: false }));
+  const runP = (sort: SortKey, priority: PriorityFilter = "TODAS") =>
+    ids(filterAndSort(pdata, { status: "TODAS", priority, query: "", sort }));
 
   it("ordena de alta a baja y deja primero a la que lleva más tiempo esperando", () => {
     expect(runP("PRIORIDAD_DESC")).toEqual(["p5", "p1", "p2", "p3", "p4"]);
@@ -199,10 +155,5 @@ describe("Prioridad por antigüedad laboral", () => {
     expect(runP("FECHA_DESC", "MEDIA")).toEqual(["p2"]);
     expect(runP("FECHA_DESC", "BAJA")).toEqual(["p3"]);
     expect(runP("FECHA_DESC")).toContain("p4");
-  });
-
-  it("una urgente sigue yendo antes que una de prioridad alta", () => {
-    const withUrgent = pdata.map((r) => (r.id === "p3" ? { ...r, urgent: true } : r));
-    expect(runP("PRIORIDAD_DESC", "TODAS", withUrgent)).toEqual(["p3", "p5", "p1", "p2", "p4"]);
   });
 });

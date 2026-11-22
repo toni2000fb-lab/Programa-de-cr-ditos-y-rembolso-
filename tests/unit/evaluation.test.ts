@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildAmortizationSchedule } from "@/domain/amortization";
-import { computeFinancials, evaluateRequest, type EvaluationInput } from "@/domain/evaluation";
+import { computeFinancials, computeCapacity, evaluateRequest, type EvaluationInput } from "@/domain/evaluation";
 
 // Ingreso Q3,000.00 y pide Q1,000.00 a 12 meses: dentro del 40 %.
 const base: EvaluationInput = {
@@ -90,5 +90,36 @@ describe("Verificación para aprobar", () => {
       expect(e.canApprove).toBe(false);
       expect(e.blockers).toEqual([]);
     }
+  });
+});
+
+describe("Margen mensual del cliente", () => {
+  const profile = { monthlyIncomeCents: 300_000, otherIncomeCents: 50_000, monthlyExpensesCents: 120_000, currentDebtPaymentCents: 30_000 };
+
+  it("suma los ingresos y resta gastos y cuotas actuales", () => {
+    expect(computeCapacity(profile, 0)).toEqual({
+      totalIncomeCents: 350_000,
+      commitmentsCents: 150_000,
+      marginCents: 200_000,
+      marginAfterPaymentCents: 200_000,
+    });
+  });
+
+  it("descuenta la cuota estimada del crédito nuevo", () => {
+    const { monthlyPaymentCents } = computeFinancials(base);
+    const c = computeCapacity(profile, monthlyPaymentCents);
+    expect(c.marginAfterPaymentCents).toBe(200_000 - monthlyPaymentCents);
+    expect(monthlyPaymentCents).toBeGreaterThan(0);
+  });
+
+  it("el margen puede salir negativo cuando los compromisos superan los ingresos", () => {
+    const c = computeCapacity({ ...profile, monthlyExpensesCents: 400_000 }, 10_000);
+    expect(c.marginCents).toBe(-80_000);
+    expect(c.marginAfterPaymentCents).toBe(-90_000);
+  });
+
+  it("no cambia lo que dice la evaluación para aprobar", () => {
+    // El margen es informativo: la lista de condiciones sigue siendo la misma de antes.
+    expect(evaluateRequest(base).checks.map((c) => c.id)).toEqual(["stage", "limit", "budget", "bureau"]);
   });
 });

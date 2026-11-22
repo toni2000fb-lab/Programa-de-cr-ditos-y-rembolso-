@@ -86,6 +86,27 @@ export async function createCreditRequest(
         employmentTenure: input.employmentTenure,
         createdById: actor.id,
         createdAt: now,
+        // Los datos del cliente se guardan junto con la solicitud, en la misma transacción.
+        profile: {
+          create: {
+            birthDate: new Date(`${input.birthDate}T00:00:00.000Z`),
+            phone: input.phone,
+            address: input.address,
+            employerName: input.employerName,
+            jobTitle: input.jobTitle,
+            incomeType: input.incomeType,
+            otherIncomeCents: toCents(input.otherIncome),
+            monthlyExpensesCents: toCents(input.monthlyExpenses),
+            currentDebtPaymentCents: toCents(input.currentDebtPayment),
+            purpose: input.purpose,
+            guarantee: input.guarantee,
+            reference1Name: input.reference1Name,
+            reference1Phone: input.reference1Phone,
+            reference2Name: input.reference2Name,
+            reference2Phone: input.reference2Phone,
+            receivedDocuments: input.receivedDocuments,
+          },
+        },
       },
     });
     await recordTransition(tx, {
@@ -103,6 +124,7 @@ export async function createCreditRequest(
 export function listRequestsFor(db: Db, actor: Actor) {
   return db.creditRequest.findMany({
     where: actor.role === "ANALISTA" ? {} : { createdById: actor.id },
+    include: { createdBy: { select: { name: true } } },
     orderBy: { createdAt: "desc" },
     take: 500,
   });

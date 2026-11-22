@@ -1,6 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import type { Actor } from "@/server/services/types";
+import { clientProfileInput } from "../fixtures";
 import { createCreditRequest } from "@/server/services/credit-requests";
 import { startReview } from "@/server/services/workflow";
 
@@ -38,6 +39,7 @@ export async function requestInReview(amount: number, documentId = uniqueDoc()) 
     monthlyIncome: amount * 3,
     amount,
     termMonths: 12,
+    ...clientProfileInput(),
   });
   await db.creditRequest.update({ where: { id: created.id }, data: { bureauStatus: "COMPLETADO", bureauScore: 720 } });
   await startReview(db, analista, created.id);

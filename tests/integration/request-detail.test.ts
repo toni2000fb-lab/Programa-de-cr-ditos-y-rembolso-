@@ -1,8 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import { getRequestDetail } from "@/server/services/request-detail";
-import { setUrgent } from "@/server/services/workflow";
-import { analista, db, requestInReview, seedActors, setBudget, solicitante } from "./helpers";
+import { analista, db, requestInReview, seedActors, setBudget, solicitante, uniqueDoc } from "./helpers";
 
 beforeAll(seedActors);
 beforeEach(() => setBudget(5_000_000));
@@ -30,20 +29,54 @@ describe("Detalle del cliente (BD real)", () => {
   it("reúne la solicitud, el asesor que la registró, la auditoría en orden y el presupuesto", async () => {
     const id = await requestInReview(1_000);
     await setBudget(777_700);
-    await setUrgent(db, analista, id, true);
 
     const d = await getRequestDetail(db, analista, id);
     expect(d.request.id).toBe(id);
-    expect(d.request.urgent).toBe(true);
+    expect(d.request.createdByName).toBe(solicitante.name);
     expect(d.createdBy).toEqual({ id: solicitante.id, name: solicitante.name, role: "SOLICITANTE" });
     expect(d.availableBudgetCents).toBe(777_700);
-    // Del más antiguo al más reciente, y la marca de urgente también queda en el seguimiento.
-    expect(d.audit.map((a) => a.comment)).toEqual([
-      "Solicitud registrada",
-      expect.any(String), // al tomarla en revisión
-      "Marcada como urgente",
-    ]);
+    // Del más antiguo al más reciente.
+    expect(d.audit.map((a) => a.toStatus)).toEqual(["CREADA", "EN_REVISION"]);
     expect(d.audit.map((a) => a.id)).toEqual([...d.audit.map((a) => a.id)].sort((a, b) => a - b));
+  });
+
+  it("incluye los datos del cliente que reunió el asesor, con importes en centavos", async () => {
+    const id = await requestInReview(1_000);
+    const { profile } = await getRequestDetail(db, analista, id);
+    expect(profile).toEqual({
+      birthDate: "1990-05-10",
+      phone: "55551234",
+      address: "5a avenida 10-20, zona 1, Guatemala",
+      employerName: "Comercial Los Pinos",
+      jobTitle: "Contador",
+      incomeType: "PLANILLA",
+      otherIncomeCents: 0,
+      monthlyExpensesCents: 120_000,
+      currentDebtPaymentCents: 0,
+      purpose: "Reparar la casa",
+      guarantee: "Fiador",
+      references: [
+        { name: "María López", phone: "55550001" },
+        { name: "Carlos Pérez", phone: "55550002" },
+      ],
+      receivedDocuments: ["COPIA_DPI", "COMPROBANTE_DOMICILIO", "CONSTANCIA_LABORAL", "COMPROBANTE_INGRESOS"],
+    });
+  });
+
+  it("una solicitud anterior a que se pidieran esos datos devuelve el perfil en nulo", async () => {
+    const legacy = await db.creditRequest.create({
+      data: {
+        applicantName: "Cliente Anterior",
+        documentId: uniqueDoc(),
+        monthlyIncomeCents: 300_000,
+        amountCents: 100_000,
+        termMonths: 12,
+        createdById: solicitante.id,
+      },
+    });
+    const d = await getRequestDetail(db, analista, legacy.id);
+    expect(d.profile).toBeNull();
+    expect(d.request.id).toBe(legacy.id);
   });
 
   it("el historial trae solo las otras solicitudes del mismo documento, la más reciente primero", async () => {

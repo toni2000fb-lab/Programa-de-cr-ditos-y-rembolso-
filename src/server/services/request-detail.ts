@@ -1,5 +1,6 @@
-import type { Role } from "@prisma/client";
+import type { ClientProfile, Role } from "@prisma/client";
 import type { Db } from "@/server/db";
+import type { ClientProfileDTO } from "@/domain/clientProfile";
 import { DomainError } from "@/domain/errors";
 import type { Actor } from "./types";
 import { listAudit, type AuditView } from "./audit";
@@ -17,8 +18,32 @@ export interface ClientHistoryItem {
   rejectionReason: string | null;
 }
 
+/** Pasa el perfil guardado al formato de la API. La fecha de nacimiento sale como YYYY-MM-DD. */
+export function serializeProfile(p: ClientProfile): ClientProfileDTO {
+  return {
+    birthDate: p.birthDate.toISOString().slice(0, 10),
+    phone: p.phone,
+    address: p.address,
+    employerName: p.employerName,
+    jobTitle: p.jobTitle,
+    incomeType: p.incomeType,
+    otherIncomeCents: p.otherIncomeCents,
+    monthlyExpensesCents: p.monthlyExpensesCents,
+    currentDebtPaymentCents: p.currentDebtPaymentCents,
+    purpose: p.purpose,
+    guarantee: p.guarantee,
+    references: [
+      { name: p.reference1Name, phone: p.reference1Phone },
+      { name: p.reference2Name, phone: p.reference2Phone },
+    ],
+    receivedDocuments: p.receivedDocuments,
+  };
+}
+
 export interface RequestDetail {
   request: RequestDTO;
+  /** Datos que el asesor reunió del cliente. Nulo en solicitudes anteriores a que se pidieran. */
+  profile: ClientProfileDTO | null;
   /** Asesor de crédito que registró la solicitud. */
   createdBy: { id: string; name: string; role: Role };
   /** Otras solicitudes con el mismo documento, de la más reciente a la más antigua. */
@@ -37,7 +62,7 @@ export async function getRequestDetail(db: Db, actor: Actor, id: string): Promis
   }
   const request = await db.creditRequest.findUnique({
     where: { id },
-    include: { createdBy: { select: { id: true, name: true, role: true } } },
+    include: { createdBy: { select: { id: true, name: true, role: true } }, profile: true },
   });
   if (!request) throw new DomainError("NOT_FOUND", "Solicitud no encontrada");
 
@@ -51,9 +76,10 @@ export async function getRequestDetail(db: Db, actor: Actor, id: string): Promis
     getBudget(db),
   ]);
 
-  const { createdBy, ...row } = request;
+  const { createdBy, profile } = request;
   return {
-    request: serializeRequest(row, actor),
+    request: serializeRequest(request),
+    profile: profile ? serializeProfile(profile) : null,
     createdBy,
     history: others.map((o) => ({
       id: o.id,

@@ -3,12 +3,11 @@
 import { useCallback, useRef, useState } from "react";
 import { canRetryBureau } from "@/domain/bureau";
 import { MIN_REJECTION_REASON_LENGTH } from "@/domain/rules";
-import { PENDING_STATUSES } from "@/domain/stateMachine";
 import { apiFetch, errorMessage } from "./api";
 import type { RequestDTO } from "./types";
 
-/** Botones de decisión de una solicitud (revisar, aprobar, rechazar, urgente y reintentar buró). */
-type Busy = "review" | "approve" | "reject" | "bureau" | "urgent";
+/** Botones de decisión de una solicitud (revisar, aprobar, rechazar y reintentar buró). */
+type Busy = "review" | "approve" | "reject" | "bureau";
 
 export function RequestActions({ r, onDone }: { r: RequestDTO; onDone: () => void }) {
   const [busy, setBusy] = useState<Busy | null>(null);
@@ -68,16 +67,6 @@ export function RequestActions({ r, onDone }: { r: RequestDTO; onDone: () => voi
             Rechazar
           </button>
         </>
-      )}
-      {PENDING_STATUSES.includes(r.status) && (
-        <button
-          className={r.urgent ? "urgent on" : "urgent"}
-          onClick={() => run("urgent", `${base}/urgent`, { urgent: !r.urgent })}
-          disabled={!!busy}
-          title={r.urgent ? "Quitar la marca de urgente" : "Marcar para atender primero"}
-        >
-          {busy === "urgent" ? "Guardando…" : r.urgent ? "Quitar urgente" : "Marcar urgente"}
-        </button>
       )}
       {showBureauRetry && (
         <button

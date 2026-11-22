@@ -6,11 +6,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatMoney } from "@/domain/money";
 import {
   countByStatus,
-  countUrgent,
   DEFAULT_SORT,
   filterAndSort,
   hasActiveFilters,
-  isUrgent,
   type PriorityFilter,
   type SortKey,
   type StatusFilter,
@@ -67,27 +65,21 @@ export function AnalystDashboard() {
   const [priority, setPriority] = useState<PriorityFilter>("TODAS");
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey>(DEFAULT_SORT);
-  const [urgentOnly, setUrgentOnly] = useState(false);
   const onDone = useCallback(() => {
     void reload();
     setRefreshKey((k) => k + 1);
   }, [reload]);
 
   const all = useMemo(() => requests ?? [], [requests]);
-  const view = useMemo(
-    () => ({ status, priority, query, sort, urgentOnly }),
-    [status, priority, query, sort, urgentOnly],
-  );
+  const view = useMemo(() => ({ status, priority, query, sort }), [status, priority, query, sort]);
   const visible = useMemo(() => filterAndSort(all, view), [all, view]);
   const counts = useMemo(() => countByStatus(all), [all]);
-  const urgentCount = useMemo(() => countUrgent(all), [all]);
   const filtersActive = hasActiveFilters(view);
   const clearFilters = () => {
     setStatus("TODAS");
     setPriority("TODAS");
     setQuery("");
     setSort(DEFAULT_SORT);
-    setUrgentOnly(false);
   };
 
   return (
@@ -105,14 +97,11 @@ export function AnalystDashboard() {
           sort={sort}
           shown={visible.length}
           total={all.length}
-          urgentOnly={urgentOnly}
-          urgentCount={urgentCount}
           filtersActive={filtersActive}
           onStatus={setStatus}
           onPriority={setPriority}
           onQuery={setQuery}
           onSort={setSort}
-          onUrgentOnly={setUrgentOnly}
           onClear={clearFilters}
         />
         {error && <p className="alert error">{error}</p>}
@@ -129,6 +118,7 @@ export function AnalystDashboard() {
                 <tr>
                   <th>Fecha</th>
                   <th>Cliente</th>
+                  <th>Asesor</th>
                   <th>Documento</th>
                   <th>Ingreso</th>
                   <th>Monto</th>
@@ -143,7 +133,7 @@ export function AnalystDashboard() {
                 {visible.map((r) => (
                   <tr
                     key={r.id}
-                    className={`clickable${isUrgent(r) ? " row-urgent" : ""}`}
+                    className="clickable"
                     onClick={(e) => {
                       if (!isInteractive(e.target)) router.push(`/analista/solicitudes/${r.id}`);
                     }}
@@ -154,6 +144,7 @@ export function AnalystDashboard() {
                         {r.applicantName}
                       </Link>
                     </td>
+                    <td>{r.createdByName ?? "—"}</td>
                     <td>{r.documentId}</td>
                     <td>{formatMoney(r.monthlyIncomeCents)}</td>
                     <td>{formatMoney(r.amountCents)}</td>
@@ -166,7 +157,6 @@ export function AnalystDashboard() {
                     </td>
                     <td>
                       <StatusBadge status={r.status} />
-                      {isUrgent(r) && <span className="badge badge-urgente">Urgente</span>}
                       {r.rejectionReason && <div className="reason">Motivo: {r.rejectionReason}</div>}
                     </td>
                     <td>

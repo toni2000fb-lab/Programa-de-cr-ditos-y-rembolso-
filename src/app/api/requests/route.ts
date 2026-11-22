@@ -13,7 +13,7 @@ export async function GET() {
   return handle(async () => {
     const user = await requireUser();
     const requests = await listRequestsFor(prisma, user);
-    return NextResponse.json({ requests: requests.map((r) => serializeRequest(r, user)) });
+    return NextResponse.json({ requests: requests.map((r) => serializeRequest(r)) });
   });
 }
 
@@ -35,6 +35,6 @@ export async function POST(request: Request) {
         console.error("[buró] consulta en segundo plano falló", e);
       }
     });
-    return NextResponse.json({ request: serializeRequest(created, user) }, { status: 201 });
+    return NextResponse.json({ request: serializeRequest(created) }, { status: 201 });
   });
 }

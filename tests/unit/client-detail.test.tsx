@@ -3,6 +3,9 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ClientDetail } from "@/components/ClientDetail";
 import type { RequestDTO } from "@/components/types";
+import type { ClientProfileDTO } from "@/domain/clientProfile";
+import { computeFinancials } from "@/domain/evaluation";
+import { formatMoney } from "@/domain/money";
 import type { RequestDetail } from "@/server/services/request-detail";
 
 const ID = "11111111-1111-4111-8111-111111111111";
@@ -27,14 +30,37 @@ function dto(o: Partial<RequestDTO> = {}): RequestDTO {
     createdById: "u-sol-ana",
     createdAt: "2026-11-21T14:00:00.000Z",
     updatedAt: new Date().toISOString(),
-    urgent: false,
+    createdByName: "Ana Torres",
     ...o,
   } as RequestDTO;
+}
+
+function profile(o: Partial<ClientProfileDTO> = {}): ClientProfileDTO {
+  return {
+    birthDate: "1990-05-10",
+    phone: "55551234",
+    address: "5a avenida 10-20, zona 1, Guatemala",
+    employerName: "Comercial Los Pinos",
+    jobTitle: "Contador",
+    incomeType: "PLANILLA",
+    otherIncomeCents: 50_000,
+    monthlyExpensesCents: 120_000,
+    currentDebtPaymentCents: 30_000,
+    purpose: "Reparar la casa",
+    guarantee: "Fiador",
+    references: [
+      { name: "María López", phone: "55550001" },
+      { name: "Carlos Pérez", phone: "55550002" },
+    ],
+    receivedDocuments: ["COPIA_DPI", "COMPROBANTE_DOMICILIO", "CONSTANCIA_LABORAL", "COMPROBANTE_INGRESOS"],
+    ...o,
+  };
 }
 
 function detail(o: Partial<RequestDetail> = {}): RequestDetail {
   return {
     request: dto(),
+    profile: profile(),
     createdBy: { id: "u-sol-ana", name: "Ana Torres", role: "SOLICITANTE" },
     history: [],
     audit: [
@@ -51,7 +77,7 @@ const json = (body: unknown, status = 200) =>
 
 let payload: RequestDetail;
 let missing = false;
-const posts: { url: string; body: { urgent?: boolean } }[] = [];
+const posts: { url: string; body: unknown }[] = [];
 
 beforeEach(() => {
   payload = detail();
@@ -61,9 +87,8 @@ beforeEach(() => {
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
       if (init?.method === "POST") {
-        const body = JSON.parse(String(init.body)) as { urgent?: boolean };
-        posts.push({ url, body });
-        payload.request.urgent = body.urgent;
+        posts.push({ url, body: JSON.parse(String(init.body)) });
+        if (url === `/api/requests/${ID}/review`) payload.request.status = "EN_REVISION";
         return json({ request: payload.request });
       }
       return missing ? json({ error: { code: "NOT_FOUND", message: "Solicitud no encontrada" } }, 404) : json(payload);
@@ -95,6 +120,7 @@ describe("Detalle del cliente", () => {
     expect(client.getByText("Q3,000.00")).toBeTruthy();
     expect(client.getByText("Ana Torres")).toBeTruthy();
     expect(client.getByText("(Asesor de crédito)")).toBeTruthy();
+    expect(client.getByText("Asesor que la registró")).toBeTruthy();
 
     const credit = within(card("Crédito solicitado"));
     expect(credit.getByText("Q1,000.00")).toBeTruthy();
@@ -107,6 +133,78 @@ describe("Detalle del cliente", () => {
 
     const bureau = within(card("Buró de crédito"));
     expect(bureau.getByText("2")).toBeTruthy(); // intentos
+  });
+
+  it("muestra los datos personales del cliente con su edad", async () => {
+    await renderLoaded();
+    const client = within(card("Datos del cliente"));
+    expect(client.getByText(/1990 \(\d+ años\)/)).toBeTruthy();
+    expect(client.getByText("55551234")).toBeTruthy();
+    expect(client.getByText("5a avenida 10-20, zona 1, Guatemala")).toBeTruthy();
+  });
+
+  it("muestra el destino del crédito y la garantía", async () => {
+    await renderLoaded();
+    const credit = within(card("Crédito solicitado"));
+    expect(credit.getByText("Reparar la casa")).toBeTruthy();
+    expect(credit.getByText("Fiador")).toBeTruthy();
+  });
+
+  it("muestra el trabajo, las finanzas y el margen mensual", async () => {
+    await renderLoaded();
+    const work = within(card("Trabajo y finanzas"));
+    expect(work.getByText("Comercial Los Pinos")).toBeTruthy();
+    expect(work.getByText("Contador")).toBeTruthy();
+    expect(work.getByText("Empleado en planilla")).toBeTruthy();
+    expect(work.getByText("Q500.00")).toBeTruthy(); // otros ingresos
+    expect(work.getByText("Q1,200.00")).toBeTruthy(); // gastos
+    expect(work.getByText("Q300.00")).toBeTruthy(); // cuotas actuales
+    expect(work.getByText("Q2,000.00")).toBeTruthy(); // 3,000 + 500 - 1,200 - 300
+    const { monthlyPaymentCents } = computeFinancials({ amountCents: 100_000, monthlyIncomeCents: 300_000, termMonths: 12 });
+    expect(work.getByText(formatMoney(200_000 - monthlyPaymentCents))).toBeTruthy();
+    expect(work.getByText(/solo informativo/)).toBeTruthy();
+  });
+
+  it("un margen negativo se marca para que se note", async () => {
+    payload = detail({ profile: profile({ monthlyExpensesCents: 400_000 }) });
+    await renderLoaded();
+    const negative = within(card("Trabajo y finanzas")).getByText("-Q800.00");
+    expect(negative.className).toBe("neg");
+  });
+
+  it("muestra las dos referencias con su teléfono", async () => {
+    await renderLoaded();
+    const refs = within(card("Referencias"));
+    expect(refs.getByText(/María López/)).toBeTruthy();
+    expect(refs.getByText(/55550002/)).toBeTruthy();
+  });
+
+  it("muestra los documentos recibidos y quién los marcó", async () => {
+    await renderLoaded();
+    const docs = within(card("Documentos recibidos"));
+    expect(docs.getAllByRole("img", { name: "Recibido" })).toHaveLength(4);
+    expect(docs.getByText("Copia del DPI")).toBeTruthy();
+    expect(docs.getByText("Boletas de pago o estados de cuenta")).toBeTruthy();
+    expect(docs.getByText(/Marcados por Ana Torres/)).toBeTruthy();
+  });
+
+  it("si falta un documento lo muestra como no recibido", async () => {
+    payload = detail({ profile: profile({ receivedDocuments: ["COPIA_DPI", "CONSTANCIA_LABORAL"] }) });
+    await renderLoaded();
+    const docs = within(card("Documentos recibidos"));
+    expect(docs.getAllByRole("img", { name: "Recibido" })).toHaveLength(2);
+    expect(docs.getAllByRole("img", { name: "No recibido" })).toHaveLength(2);
+  });
+
+  it("una solicitud anterior sin esos datos lo explica y no inventa secciones", async () => {
+    payload = detail({ profile: null });
+    await renderLoaded();
+    expect(screen.getByText(/se registró antes de que se pidieran los datos/)).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Trabajo y finanzas" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Referencias" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Documentos recibidos" })).toBeNull();
+    // Lo que sí se sabe de la solicitud sigue ahí.
+    expect(within(card("Datos del cliente")).getByText("ABC12345")).toBeTruthy();
   });
 
   it("avisa que cumple las condiciones y deja la decisión al analista", async () => {
@@ -175,13 +273,15 @@ describe("Detalle del cliente", () => {
     expect(screen.getByText("Motivo del rechazo: Historial insuficiente para el monto")).toBeTruthy();
   });
 
-  it("se puede marcar urgente desde el detalle y la etiqueta aparece", async () => {
+  it("una solicitud nueva se puede tomar en revisión desde el detalle", async () => {
+    payload = detail({ request: dto({ status: "CREADA" }) });
     await renderLoaded();
-    expect(screen.queryByText("Urgente")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Marcar urgente" }));
-    await waitFor(() => expect(screen.getByText("Urgente")).toBeTruthy());
-    expect(posts).toEqual([{ url: `/api/requests/${ID}/urgent`, body: { urgent: true } }]);
-    expect(screen.getByRole("button", { name: "Quitar urgente" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Aprobar" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Tomar en revisión" }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Aprobar" })).toBeTruthy());
+    expect(posts).toEqual([{ url: `/api/requests/${ID}/review`, body: {} }]);
   });
 
   it("una solicitud que no existe lo dice y ofrece volver al panel", async () => {
