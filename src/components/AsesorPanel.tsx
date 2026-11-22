@@ -4,7 +4,7 @@ import { useState } from "react";
 import { RequestForm } from "./RequestForm";
 import { MyRequests } from "./MyRequests";
 
-export function SolicitantePanel() {
+export function AsesorPanel() {
   const [refreshKey, setRefreshKey] = useState(0);
   return (
     <div className="stack">

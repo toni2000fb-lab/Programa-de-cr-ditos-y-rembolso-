@@ -158,3 +158,24 @@ button.urgent.on { background: var(--bad-bg); }
 .badge-prioridad-media { background: var(--info-bg); color: var(--info); }
 .badge-prioridad-baja { background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
 .tenure { display: block; font-size: 0.78rem; color: var(--muted); margin-top: 2px; white-space: nowrap; }
+/* Detalle del cliente (panel del analista) */
+tr.clickable { cursor: pointer; }
+tr.clickable:hover td { background: var(--info-bg); }
+.client-link { font-weight: 600; }
+.back-link { font-size: 0.9rem; }
+.alert.warn { background: var(--warn-bg); color: var(--warn); }
+.row.wrap { flex-wrap: wrap; }
+.detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; }
+.detail-grid h3, .card > h3 { margin-top: 0; }
+.kv { display: grid; grid-template-columns: minmax(8rem, 12rem) 1fr; gap: 8px 14px; margin: 0; }
+.kv dt { color: var(--muted); font-size: 0.85rem; }
+.kv dd { margin: 0; font-weight: 500; }
+.check-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.check { display: grid; grid-template-columns: 1.6rem 1fr; gap: 8px; align-items: start; }
+.check-icon { font-weight: 700; text-align: center; }
+.check-ok .check-icon { color: var(--ok); }
+.check-fail .check-icon { color: var(--bad); }
+.check-pending .check-icon { color: var(--warn); }
+.check-na .check-icon { color: var(--muted); }
+.timeline { list-style: none; margin: 0; padding: 0 0 0 14px; display: grid; gap: 14px; border-left: 2px solid var(--border); }
+.timeline time { display: block; color: var(--muted); font-size: 0.8rem; }

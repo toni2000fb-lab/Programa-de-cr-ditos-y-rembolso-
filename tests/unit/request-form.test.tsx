@@ -31,7 +31,7 @@ const field = (label: RegExp) => screen.getByLabelText(label);
 const submitButton = () => screen.getByRole("button", { name: "Confirmar y enviar solicitud" }) as HTMLButtonElement;
 
 function fillEverythingExceptTenure() {
-  fireEvent.change(field(/Nombre del solicitante/), { target: { value: "Ana Torres" } });
+  fireEvent.change(field(/Nombre del cliente/), { target: { value: "Ana Torres" } });
   fireEvent.change(field(/Documento de identidad/), { target: { value: "ABC12345" } });
   fireEvent.change(field(/Ingreso mensual declarado/), { target: { value: "3000" } });
   fireEvent.change(field(/Monto solicitado/), { target: { value: "1000" } });

@@ -23,6 +23,7 @@ import { GET as getAuditStream } from "@/app/api/audit/stream/route";
 import { GET as getBudget } from "@/app/api/budget/route";
 import { GET as listRequests, POST as createRequest } from "@/app/api/requests/route";
 import { GET as getEligibility } from "@/app/api/requests/eligibility/route";
+import { GET as getDetail } from "@/app/api/requests/[id]/route";
 import { POST as approve } from "@/app/api/requests/[id]/approve/route";
 import { POST as reject } from "@/app/api/requests/[id]/reject/route";
 import { POST as review } from "@/app/api/requests/[id]/review/route";
@@ -73,6 +74,7 @@ const protectedRoutes: { name: string; role: "ANALISTA" | "SOLICITANTE"; call: (
     call: () => reject(post("/x", { reason: "Motivo suficientemente largo" }, { "Idempotency-Key": randomUUID() }), ctx(someId)),
   },
   { name: "POST /api/requests/:id/bureau", role: "ANALISTA", call: () => recheckBureau(post("/x"), ctx(someId)) },
+  { name: "GET /api/requests/:id", role: "ANALISTA", call: () => getDetail(get("/x"), ctx(someId)) },
   { name: "POST /api/requests/:id/urgent", role: "ANALISTA", call: () => markUrgent(post("/x", { urgent: true }), ctx(someId)) },
   { name: "POST /api/requests", role: "SOLICITANTE", call: () => createRequest(post("/api/requests", {})) },
   {
@@ -293,5 +295,44 @@ describe("Antigüedad laboral al crear la solicitud", () => {
       requests: { id: string; employmentTenure: string | null }[];
     };
     expect(requests.find((r) => r.id === legacy.id)?.employmentTenure).toBeNull();
+  });
+});
+
+describe("Detalle del cliente por HTTP", () => {
+  type Detail = {
+    request: { id: string; applicantName: string; urgent?: boolean };
+    createdBy: { name: string; role: string };
+    history: unknown[];
+    audit: { toStatus: string }[];
+    availableBudgetCents: number;
+  };
+
+  it("el analista recibe la solicitud, quién la registró, la auditoría y el presupuesto", async () => {
+    const id = await requestInReview(1_000);
+    await setBudget(1_234_500);
+    asUser(analista);
+    const res = await getDetail(get(`/api/requests/${id}`), ctx(id));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Detail;
+    expect(body.request.id).toBe(id);
+    expect(body.request.urgent).toBe(false);
+    expect(body.createdBy).toMatchObject({ name: solicitante.name, role: "SOLICITANTE" });
+    expect(body.availableBudgetCents).toBe(1_234_500);
+    expect(body.audit.map((a) => a.toStatus)).toEqual(["CREADA", "EN_REVISION"]);
+  });
+
+  it("un asesor de crédito recibe 403 aunque la solicitud sea suya", async () => {
+    const id = await requestInReview(1_000);
+    asUser(solicitante);
+    expect((await getDetail(get(`/api/requests/${id}`), ctx(id))).status).toBe(403);
+  });
+
+  it("un identificador inexistente o mal formado responde 404", async () => {
+    asUser(analista);
+    for (const id of [randomUUID(), "no-es-un-uuid"]) {
+      const res = await getDetail(get(`/api/requests/${id}`), ctx(id));
+      expect(res.status, id).toBe(404);
+      expect(await errorCode(res)).toBe("NOT_FOUND");
+    }
   });
 });

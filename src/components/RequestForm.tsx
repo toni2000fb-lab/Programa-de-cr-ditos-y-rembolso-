@@ -122,7 +122,7 @@ export function RequestForm({ onCreated }: { onCreated: () => void }) {
       <h2>Nueva solicitud de desembolso</h2>
       <div className="grid">
         <label>
-          Nombre del solicitante
+          Nombre del cliente
           <input value={values.applicantName} onChange={set("applicantName")} onBlur={blur("applicantName")} />
           {show("applicantName") && <span className="field-error">{show("applicantName")}</span>}
         </label>

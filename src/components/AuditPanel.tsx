@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { ROLE_LABEL } from "@/domain/roles";
 import { STATUS_LABEL } from "@/domain/stateMachine";
 import { apiFetch, errorMessage } from "./api";
 import type { AuditView } from "./types";
@@ -78,7 +79,7 @@ export function AuditPanel() {
                     <span className="muted">{e.applicantName}</span>
                   </td>
                   <td>
-                    {e.actorName} <span className="muted">({e.actorRole})</span>
+                    {e.actorName} <span className="muted">({ROLE_LABEL[e.actorRole]})</span>
                   </td>
                   <td>{e.fromStatus ? STATUS_LABEL[e.fromStatus] : "—"}</td>
                   <td>{STATUS_LABEL[e.toStatus]}</td>

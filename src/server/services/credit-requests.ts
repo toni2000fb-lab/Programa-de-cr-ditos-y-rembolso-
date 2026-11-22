@@ -64,7 +64,7 @@ export async function createCreditRequest(
   now: Date = new Date(),
 ): Promise<CreditRequest> {
   if (actor.role !== "SOLICITANTE") {
-    throw new DomainError("FORBIDDEN", "Sólo un solicitante puede registrar solicitudes");
+    throw new DomainError("FORBIDDEN", "Solo un asesor de crédito puede registrar solicitudes");
   }
   const input = createRequestSchema.parse(rawInput);
 
@@ -99,7 +99,7 @@ export async function createCreditRequest(
   });
 }
 
-/** El solicitante sólo ve sus solicitudes; el analista ve todas. */
+/** El asesor de crédito solo ve las solicitudes que registró; el analista ve todas. */
 export function listRequestsFor(db: Db, actor: Actor) {
   return db.creditRequest.findMany({
     where: actor.role === "ANALISTA" ? {} : { createdById: actor.id },

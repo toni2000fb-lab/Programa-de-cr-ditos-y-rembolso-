@@ -36,16 +36,19 @@ usa la red interna de Docker.
 
 En la pantalla de inicio hay un **selector de usuarios**; no hacen falta contraseñas.
 
-| Usuario       | Rol         | Puede                                                        |
-|---------------|-------------|--------------------------------------------------------------|
-| Ana Torres    | Solicitante | Crear solicitudes y consultar las suyas                      |
-| Luis Gómez    | Solicitante | Ídem (sirve para comprobar que no ve las solicitudes de Ana) |
-| Carla Méndez  | Analista    | Revisar, aprobar, rechazar y ver la auditoría                |
-| Diego Rojas   | Analista    | Ídem (útil para probar dos analistas a la vez)               |
+| Usuario       | Rol               | Puede                                                        |
+|---------------|-------------------|--------------------------------------------------------------|
+| Ana Torres    | Asesor de crédito | Registrar solicitudes de sus clientes y consultar las suyas  |
+| Luis Gómez    | Asesor de crédito | Ídem (sirve para comprobar que no ve las solicitudes de Ana) |
+| Carla Méndez  | Analista          | Revisar, aprobar, rechazar, ver el detalle de cada cliente y la auditoría |
+| Diego Rojas   | Analista          | Ídem (útil para probar dos analistas a la vez)               |
+
+En el código y en la base de datos el rol del asesor sigue llamándose `SOLICITANTE`; solo cambia el
+nombre que se muestra, porque quien solicita el crédito es el cliente y no quien usa el sistema.
 
 ### Flujo para probarlo
 
-1. Entra como **Ana** y crea una solicitud, eligiendo el tiempo en su trabajo actual. La tabla de
+1. Entra como **Ana** y registra la solicitud de un cliente, eligiendo el tiempo en su trabajo actual. La tabla de
    amortización se recalcula mientras escribes.
    Prueba un monto mayor al 40 % del ingreso, o repetir el mismo documento, para ver los bloqueos.
 2. La solicitud aparece con el estado del buró ("Consultando buró…"). La consulta se hace en
@@ -56,6 +59,9 @@ En la pantalla de inicio hay un **selector de usuarios**; no hacen falta contras
    y ordenar por fecha, monto o nombre. Con "Marcar urgente" una solicitud abierta aparece primero y
    con su etiqueta, y el botón "Solo urgentes" deja únicamente esas. Cada solicitud muestra además su
    prioridad (Alta, Media o Baja), que puedes filtrar y usar para ordenar.
+   Al pulsar la fila de un cliente se abre su **detalle**: datos del cliente, crédito solicitado,
+   verificación de las condiciones para aprobar, buró, historial de ese documento, tabla de
+   amortización y seguimiento. Desde ahí también se puede revisar, aprobar, rechazar y marcar urgente.
 4. Abre **Auditoría** en otra pestaña: las transiciones aparecen en vivo.
 
 ### Desarrollo local (la app fuera de Docker)
@@ -94,13 +100,13 @@ La base `creditos_test` la crea el contenedor de Postgres al inicializarse
 
 | Archivo | Qué verifica |
 |---|---|
-| `tests/integration/approval.test.ts` | **20 aprobaciones simultáneas** de la misma solicitud: sólo una se aplica, el presupuesto baja una vez y hay una sola entrada de auditoría. Doble clic con la **misma clave de idempotencia** devuelve la misma respuesta. Varias solicitudes compitiendo por el presupuesto **nunca lo dejan negativo**. No se puede aprobar una rechazada. Un solicitante no puede aprobar. La auditoría no se puede modificar ni borrar. |
+| `tests/integration/approval.test.ts` | **20 aprobaciones simultáneas** de la misma solicitud: sólo una se aplica, el presupuesto baja una vez y hay una sola entrada de auditoría. Doble clic con la **misma clave de idempotencia** devuelve la misma respuesta. Varias solicitudes compitiendo por el presupuesto **nunca lo dejan negativo**. No se puede aprobar una rechazada. Un asesor de crédito no puede aprobar. La auditoría no se puede modificar ni borrar. |
 | `tests/integration/history.test.ts` | Regla de los 30 días (incluidos **envíos simultáneos** del mismo documento), el mensaje exacto del bloqueo y la validación del 40 % en el servidor. |
 | `tests/unit/rules.test.ts` | Límite del 40 % (en centavos), plazos válidos, motivo de rechazo y máquina de estados. |
 | `tests/unit/amortization.test.ts` | Cuota fija con 1.5 % mensual y cuadre de capital y saldo. |
 | `tests/unit/retry.test.ts` | Reintentos ante 503, sin reintentos ante 4xx y backoff exponencial. |
 | `tests/unit/session.test.ts` | Rechazo de cookies de sesión manipuladas o expiradas. |
-| `tests/integration/routes.test.ts` | Permisos **en las rutas HTTP**: sin sesión 401, solicitante 403 en cada ruta de analista, analista 403 al crear, cookie manipulada o de usuario inexistente 401, visibilidad por solicitante e idempotencia de la aprobación por HTTP. |
+| `tests/integration/routes.test.ts` | Permisos **en las rutas HTTP**: sin sesión 401, asesor de crédito 403 en cada ruta de analista, analista 403 al crear, cookie manipulada o de usuario inexistente 401, visibilidad por asesor, detalle del cliente e idempotencia de la aprobación por HTTP. |
 | `tests/integration/idempotency.test.ts` | Las claves de idempotencia de más de 24 h se limpian solas y las recientes se conservan. |
 | `tests/unit/bureau-retry.test.ts` | Cuándo el analista puede relanzar el buró: fallido o atascado más de 60 s, nunca completado ni en solicitudes resueltas. |
 | `tests/unit/bureau-route.test.ts` | El buró simulado exige su credencial: 401 sin token o con uno incorrecto. |
@@ -126,7 +132,7 @@ src/
     http.ts        Traducción de errores de dominio a HTTP
   app/
     api/           Route handlers delgados: autentican, validan y delegan en services
-    (páginas)      /login, /solicitante, /analista, /analista/auditoria
+    (páginas)      /login, /asesor, /analista, /analista/solicitudes/[id], /analista/auditoria
   components/      Componentes cliente
 prisma/            Esquema, migración (con constraints y trigger) y seed
 tests/             unit/ e integration/
@@ -180,7 +186,7 @@ documento no pueden saltarse la regla.
 - La cookie de sesión está firmada con HMAC-SHA256 (`SESSION_SECRET`), es `httpOnly` y sólo contiene
   el id del usuario y la expiración. **El rol se lee siempre de la base de datos** en el servidor.
 - Cada endpoint llama a `requireUser(rol)`, y los servicios vuelven a comprobar el rol (defensa en
-  profundidad). Un solicitante sólo ve sus propias solicitudes, y una que no es suya responde `404`.
+  profundidad). Un asesor de crédito solo ve las solicitudes que registró, y una que no es suya responde `404`.
 - Las páginas también redirigen según el rol, pero la seguridad no depende de eso.
 - El selector de usuarios es un mecanismo de demostración que la prueba permite explícitamente.
   En producción se reemplazaría por un proveedor de identidad real.
@@ -218,7 +224,7 @@ de la petición en la API. La regla de historial se consulta en vivo al escribir
   Guatemala, la interfaz y los mensajes muestran quetzales. No hay conversión, el presupuesto sigue
   siendo el mismo número (`Q50,000.00`). Para volver a dólares basta con cambiar `CURRENCY_CODE`,
   `CURRENCY_SYMBOL` y `formatMoney` en `src/domain/money.ts`, y las etiquetas `(GTQ)` del formulario.
-- **Prioridad por antigüedad laboral**: el solicitante indica cuánto tiempo lleva en su trabajo
+- **Prioridad por antigüedad laboral**: el asesor de crédito registra cuánto tiempo lleva el cliente en su trabajo
   actual y de ahí sale la prioridad por una regla fija: menos de 1 año es **Baja**, de 1 a menos de
   3 años es **Media** y 3 años o más es **Alta**. Los rangos se dejaron contiguos para que no quede
   ningún valor sin cubrir. Solo se guarda la antigüedad (`employment_tenure`); la prioridad se calcula
@@ -228,8 +234,14 @@ de la petición en la API. La regla de historial se consulta en vivo al escribir
   cola, no cambia ninguna regla: el 40 %, los 30 días, el buró y el presupuesto se aplican igual.
 - **Marca de urgente**: es una herramienta interna del analista para atender antes a un cliente
   importante. Solo se puede cambiar mientras la solicitud está abierta (`CREADA` o `EN_REVISION`), el
-  solicitante no la ve y no cambia ninguna regla: el 40 %, los 30 días, el buró y el presupuesto se
+  asesor de crédito no la ve y no cambia ninguna regla: el 40 %, los 30 días, el buró y el presupuesto se
   aplican igual. Cada cambio queda en la auditoría con el mismo estado como anterior y nuevo.
+- **Detalle del cliente**: es solo para analistas y reúne en una pantalla lo que hoy se sabe de la
+  solicitud. El bloque "Verificación para aprobar" repite las mismas condiciones que el servidor
+  exige al aprobar (en revisión, buró completado y presupuesto suficiente) más la regla del 40 %,
+  para que el analista vea de un vistazo qué falta. No decide nada: el servidor vuelve a validar
+  todo al aprobar. La cuota sobre el ingreso se muestra como dato informativo, sin umbral, porque
+  la especificación no define uno.
 - **"Tomar en revisión"** es una acción explícita del analista (`CREADA → EN_REVISION`) y queda
   auditada como cualquier otra transición.
 
@@ -238,9 +250,10 @@ de la petición en la API. La regla de historial se consulta en vivo al escribir
 | Método | Ruta | Rol | Descripción |
 |---|---|---|---|
 | POST | `/api/auth/login` · `/api/auth/logout` | — | Iniciar / cerrar sesión con un usuario de prueba |
-| GET | `/api/requests` | ambos | Listado (el solicitante sólo ve las suyas) |
-| POST | `/api/requests` | Solicitante | Crear solicitud (exige `employmentTenure`) |
-| GET | `/api/requests/eligibility?documentId=` | Solicitante | Comprobar la regla de 30 días |
+| GET | `/api/requests` | ambos | Listado (el asesor solo ve las suyas) |
+| GET | `/api/requests/:id` | Analista | Detalle del cliente: solicitud, asesor, historial del documento, auditoría y presupuesto |
+| POST | `/api/requests` | Asesor de crédito | Crear solicitud (exige `employmentTenure`) |
+| GET | `/api/requests/eligibility?documentId=` | Asesor de crédito | Comprobar la regla de 30 días |
 | POST | `/api/requests/:id/review` | Analista | `CREADA → EN_REVISION` |
 | POST | `/api/requests/:id/approve` | Analista | Aprobar (requiere `Idempotency-Key`) |
 | POST | `/api/requests/:id/reject` | Analista | Rechazar con `{ reason }` (requiere `Idempotency-Key`) |

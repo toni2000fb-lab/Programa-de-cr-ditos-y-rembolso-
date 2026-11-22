@@ -36,6 +36,10 @@ const baseRequests: RequestDTO[] = [
   dto("r5", { applicantName: "Diego Pérez", amountCents: 300_000, createdAt: "2026-11-05T09:00:00.000Z", status: "APROBADA" }),
 ];
 
+// El panel navega con el router de Next; en las pruebas se sustituye por un espía.
+const push = vi.hoisted(() => vi.fn());
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push, refresh: vi.fn() }) }));
+
 const json = (body: unknown) =>
   new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
 
@@ -46,6 +50,7 @@ const posts: { url: string; body: { urgent?: boolean } }[] = [];
 beforeEach(() => {
   requests = baseRequests.map((r) => ({ ...r }));
   posts.length = 0;
+  push.mockReset();
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
@@ -68,7 +73,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-/** Nombres de la columna "Solicitante", en el orden en que se ven. */
+/** Nombres de la columna "Cliente", en el orden en que se ven. */
 const names = (container: HTMLElement) =>
   Array.from(container.querySelectorAll("tbody tr td:nth-child(2)")).map((td) => td.textContent);
 
@@ -298,5 +303,30 @@ describe("Panel del analista: prioridad por antigüedad laboral", () => {
     fireEvent.click(screen.getByRole("button", { name: "Limpiar filtros" }));
     expect((screen.getByLabelText("Prioridad") as HTMLSelectElement).value).toBe("TODAS");
     expect(names(container)).toHaveLength(5);
+  });
+});
+
+describe("Panel del analista: abrir el detalle del cliente", () => {
+  const rowOf = (name: string) => screen.getByText(name).closest("tr") as HTMLElement;
+
+  it("el nombre del cliente es un enlace a su detalle", async () => {
+    await renderLoaded();
+    const link = within(rowOf("Bruno Pérez")).getByRole("link", { name: "Bruno Pérez" });
+    expect(link.getAttribute("href")).toBe("/analista/solicitudes/r2");
+  });
+
+  it("pulsar en cualquier parte de la fila abre el detalle", async () => {
+    await renderLoaded();
+    const cells = rowOf("Álvaro Zúñiga").querySelectorAll("td");
+    fireEvent.click(cells[3]!); // la columna de ingreso
+    expect(push).toHaveBeenCalledTimes(1);
+    expect(push).toHaveBeenCalledWith("/analista/solicitudes/r3");
+  });
+
+  it("pulsar un botón de la fila no abre el detalle", async () => {
+    await renderLoaded();
+    fireEvent.click(within(rowOf("Bruno Pérez")).getByRole("button", { name: "Marcar urgente" }));
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect(push).not.toHaveBeenCalled();
   });
 });

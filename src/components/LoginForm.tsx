@@ -2,12 +2,13 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { ROLE_HOME, ROLE_LABEL, type RoleValue } from "@/domain/roles";
 import { apiFetch, errorMessage } from "./api";
 
 interface TestUser {
   id: string;
   name: string;
-  role: "SOLICITANTE" | "ANALISTA";
+  role: RoleValue;
 }
 
 export function LoginForm({ users }: { users: TestUser[] }) {
@@ -20,7 +21,7 @@ export function LoginForm({ users }: { users: TestUser[] }) {
     setError(null);
     try {
       await apiFetch("/api/auth/login", { method: "POST", body: JSON.stringify({ userId: u.id }) });
-      router.replace(u.role === "ANALISTA" ? "/analista" : "/solicitante");
+      router.replace(ROLE_HOME[u.role]);
       router.refresh();
     } catch (e) {
       setError(errorMessage(e));
@@ -33,7 +34,7 @@ export function LoginForm({ users }: { users: TestUser[] }) {
       {users.map((u) => (
         <button key={u.id} className="user-card" onClick={() => login(u)} disabled={pending !== null}>
           <strong>{u.name}</strong>
-          <span className={`role role-${u.role.toLowerCase()}`}>{u.role === "ANALISTA" ? "Analista" : "Solicitante"}</span>
+          <span className={`role role-${u.role.toLowerCase()}`}>{ROLE_LABEL[u.role]}</span>
           {pending === u.id && <span className="muted">Entrando…</span>}
         </button>
       ))}

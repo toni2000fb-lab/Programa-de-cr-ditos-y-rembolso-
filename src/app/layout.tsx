@@ -3,6 +3,7 @@ import Link from "next/link";
 import "./globals.css";
 import { getCurrentUser } from "@/server/auth/current-user";
 import { LogoutButton } from "@/components/LoginForm";
+import { ROLE_LABEL } from "@/domain/roles";
 
 export const metadata: Metadata = {
   title: "Créditos y Desembolsos",
@@ -26,10 +27,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                   <Link href="/analista/auditoria">Auditoría</Link>
                 </>
               ) : (
-                <Link href="/solicitante">Mis solicitudes</Link>
+                <Link href="/asesor">Mis solicitudes</Link>
               )}
               <span className="who">
-                {user.name} · <em>{user.role === "ANALISTA" ? "Analista" : "Solicitante"}</em>
+                {user.name} · <em>{ROLE_LABEL[user.role]}</em>
               </span>
               <LogoutButton />
             </nav>
