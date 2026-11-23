@@ -8,6 +8,14 @@ de **Q50,000.00** (quetzales), con auditoría inmutable en tiempo real.
 
 **Stack:** Next.js 15 (App Router) · TypeScript estricto · API Routes + Zod · Prisma · PostgreSQL 16 · Vitest · Docker Compose.
 
+## Inicio rápido
+
+```bash
+docker compose up --build   # 1. levanta la base de datos y la app (la primera vez tarda unos minutos)
+# 2. espera a ver "Ready" en la consola y abre http://localhost:3000
+# 3. elige un usuario de prueba en la pantalla de inicio; no hacen falta contraseñas
+```
+
 ---
 
 ## Levantar el proyecto
@@ -22,6 +30,9 @@ Abre <http://localhost:3000>. Al arrancar, el contenedor aplica las migraciones,
 de prueba y crea el presupuesto inicial (de forma idempotente).
 
 Para empezar desde cero (borra la base de datos): `docker compose down -v`.
+
+Si la página no carga, `docker compose ps` debe mostrar `healthy` en la app (tarda unos segundos en
+arrancar porque aplica migraciones primero) y `docker compose logs app --tail 50` muestra por qué falla.
 
 Si el puerto 3000 de tu equipo está ocupado (`port is already allocated`), elige otro con `APP_PORT`.
 En PowerShell: `$env:APP_PORT=3001; docker compose up`. En bash: `APP_PORT=3001 docker compose up`. Después
@@ -112,7 +123,8 @@ La base `creditos_test` la crea el contenedor de Postgres al inicializarse
 | `tests/unit/amortization.test.ts` | Cuota fija con 1.5 % mensual y cuadre de capital y saldo. |
 | `tests/unit/retry.test.ts` | Reintentos ante 503, sin reintentos ante 4xx y backoff exponencial. |
 | `tests/unit/session.test.ts` | Rechazo de cookies de sesión manipuladas o expiradas. |
-| `tests/integration/routes.test.ts` | Permisos **en las rutas HTTP**: sin sesión 401, asesor de crédito 403 en cada ruta de analista, analista 403 al crear, cookie manipulada o de usuario inexistente 401, visibilidad por asesor, detalle del cliente e idempotencia de la aprobación por HTTP. |
+| `tests/unit/rate-limit.test.ts` · `tests/unit/session-cookie.test.ts` · `tests/unit/security-headers.test.ts` | El límite de peticiones (ventana, reinicio, tope de memoria, IP del cliente), cuándo la cookie de sesión lleva `Secure` y las cabeceras de seguridad que se envían. |
+| `tests/integration/routes.test.ts` | Permisos **en las rutas HTTP**: sin sesión 401, asesor de crédito 403 en cada ruta de analista, analista 403 al crear, cookie manipulada o de usuario inexistente 401, visibilidad por asesor, detalle del cliente e idempotencia de la aprobación por HTTP. También inicio y cierre de sesión (atributos de la cookie) y el `429` al pasar del límite de peticiones. |
 | Los datos del cliente en `routes.test.ts` | Se guardan junto con la solicitud (importes en centavos, teléfonos normalizados), faltar cualquiera responde 400, un bloqueo por historial no deja datos huérfanos y el listado no los expone. |
 | `tests/integration/idempotency.test.ts` | Las claves de idempotencia de más de 24 h se limpian solas y las recientes se conservan. |
 | `tests/unit/bureau-retry.test.ts` | Cuándo el analista puede relanzar el buró: fallido o atascado más de 60 s, nunca completado ni en solicitudes resueltas. |
@@ -120,7 +132,8 @@ La base `creditos_test` la crea el contenedor de Postgres al inicializarse
 
 Calidad estática: `npm run typecheck` y `npm run lint`. El workflow de GitHub Actions
 (`.github/workflows/ci.yml`) ejecuta typecheck, lint y toda la suite contra un PostgreSQL real en cada
-push y pull request.
+push y pull request. Un segundo trabajo levanta el proyecto con `docker compose up --build`, comprueba que
+`/login` responde, que la app corre sin root, que salen las cabeceras de seguridad y que se puede iniciar sesión.
 
 ---
 
@@ -197,6 +210,18 @@ documento no pueden saltarse la regla.
 - Las páginas también redirigen según el rol, pero la seguridad no depende de eso.
 - El selector de usuarios es un mecanismo de demostración que la prueba permite explícitamente.
   En producción se reemplazaría por un proveedor de identidad real.
+- **Cookie `Secure` por defecto en producción.** Si la petición llega por HTTPS (directo o detrás de un
+  proxy que envía `X-Forwarded-Proto`), la cookie lleva `Secure` sin configurar nada. Por HTTP no se
+  marca, porque algunos navegadores descartarían la cookie y el login con `http://localhost` en Docker
+  dejaría de funcionar. `COOKIE_SECURE=true` o `false` manda sobre esa detección.
+- **Límite de peticiones.** El inicio de sesión admite 30 por minuto desde cada IP y las decisiones
+  (aprobar y rechazar, entre las dos) 60 por minuto por analista. Al pasarse responde `429` con la
+  cabecera `Retry-After`. Las peticiones sin permiso no gastan el límite del analista.
+- **Cabeceras de seguridad** en todas las rutas: `X-Frame-Options: DENY`, `X-Content-Type-Options`,
+  `Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`, `Strict-Transport-Security` y una
+  CSP con `frame-ancestors 'none'`. La CSP no fija `script-src`: Next.js inyecta scripts en línea y
+  restringirlos exigiría nonces en cada petición.
+- **El contenedor no corre como root.** La imagen usa el usuario `node` (uid 1000).
 
 ### Auditoría inmutable y en tiempo real
 - Cada transición inserta una fila en `audit_logs` **dentro de la misma transacción** que el cambio
@@ -290,7 +315,8 @@ de la petición en la API. La regla de historial se consulta en vivo al escribir
 | GET | `/api/bureau/:documentId` | token interno | Buró simulado (servicio "externo"), cabecera `x-internal-token` |
 
 Los errores siguen el formato `{ "error": { "code", "message", "details" } }` con su código HTTP
-(400 validación, 401, 403, 404, 409 conflictos de negocio, 422 clave de idempotencia reutilizada).
+(400 validación, 401, 403, 404, 409 conflictos de negocio, 422 clave de idempotencia reutilizada, 429 demasiadas
+peticiones, con `Retry-After`).
 
 ## Variables de entorno
 
@@ -302,7 +328,8 @@ real, define `SESSION_SECRET`.
 | `DATABASE_URL` | Sí | Conexión a PostgreSQL. |
 | `SESSION_SECRET` | Sí | Clave (mínimo 16 caracteres) con la que se firma la cookie de sesión. |
 | `BUREAU_BASE_URL` | Sí | URL desde la que la app consulta su propio buró simulado. |
-| `COOKIE_SECURE` | No | Con `true` la cookie de sesión lleva el atributo `Secure`. Actívala siempre que se sirva por HTTPS. |
+| `COOKIE_SECURE` | No | `true` fuerza el atributo `Secure` de la cookie de sesión y `false` lo quita. Sin definir, en producción es `Secure` cuando la petición llega por HTTPS. |
+| `RATE_LIMIT_DISABLED` | No | Con `true` se apaga el límite de peticiones (útil para pruebas de carga). |
 | `BUREAU_API_TOKEN` | No | Credencial del buró (mínimo 16 caracteres). Si falta, se deriva de `SESSION_SECRET`. |
 
 ## Limitaciones conocidas
@@ -312,7 +339,8 @@ real, define `SESSION_SECRET`.
   en manos del analista.
 - La auditoría en vivo consulta la base de datos cada 1.5 s por cada panel abierto. Con muchos
   analistas conectados convendría `LISTEN/NOTIFY` de PostgreSQL.
-- El contenedor de la app se ejecuta como root; para producción habría que añadir un usuario sin
-  privilegios en el Dockerfile.
+- El límite de peticiones vive en la memoria de cada proceso: con varias réplicas cada una cuenta aparte
+  (haría falta Redis o la base de datos). Por IP solo es fiable detrás de un proxy que ponga
+  `X-Forwarded-For`; sin proxy esa cabecera la controla quien llama.
 - El lint no se ejecuta durante `docker build` (se hace en `npm run lint` y en el CI) para que la
   imagen no dependa de él.

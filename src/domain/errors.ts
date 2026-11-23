@@ -9,7 +9,8 @@ export type DomainErrorCode =
   | "INSUFFICIENT_BUDGET"
   | "BUREAU_REQUIRED"
   | "BUREAU_UNAVAILABLE"
-  | "IDEMPOTENCY_CONFLICT";
+  | "IDEMPOTENCY_CONFLICT"
+  | "RATE_LIMITED";
 
 const HTTP_STATUS: Record<DomainErrorCode, number> = {
   VALIDATION: 400,
@@ -23,6 +24,7 @@ const HTTP_STATUS: Record<DomainErrorCode, number> = {
   BUREAU_REQUIRED: 409,
   BUREAU_UNAVAILABLE: 503,
   IDEMPOTENCY_CONFLICT: 422,
+  RATE_LIMITED: 429,
 };
 
 export class DomainError extends Error {

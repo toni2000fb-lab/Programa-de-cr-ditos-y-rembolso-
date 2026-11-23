@@ -4,9 +4,14 @@ import { ZodError, type ZodType } from "zod";
 import { DomainError } from "@/domain/errors";
 
 export function jsonError(error: DomainError): Response {
+  const headers: Record<string, string> = {};
+  if (error.code === "RATE_LIMITED") {
+    const seconds = (error.details as { retryAfterSeconds?: unknown } | undefined)?.retryAfterSeconds;
+    if (typeof seconds === "number") headers["Retry-After"] = String(seconds);
+  }
   return NextResponse.json(
     { error: { code: error.code, message: error.message, details: error.details ?? null } },
-    { status: error.httpStatus },
+    { status: error.httpStatus, headers },
   );
 }
 

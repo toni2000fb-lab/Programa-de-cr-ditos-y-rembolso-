@@ -29,6 +29,13 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      # Marca la app como "healthy" cuando /login responde. `docker compose ps` muestra si ya está lista.
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/login').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
     ports:
       # Puerto del equipo configurable con APP_PORT si el 3000 está ocupado. Dentro del contenedor la app
       # sigue en 3000, por eso BUREAU_BASE_URL no cambia.
