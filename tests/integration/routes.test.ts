@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 
 // Sesión simulada: los route handlers leen la cookie con `cookies()` de next/headers.
@@ -28,10 +28,13 @@ import { POST as approve } from "@/app/api/requests/[id]/approve/route";
 import { POST as reject } from "@/app/api/requests/[id]/reject/route";
 import { POST as review } from "@/app/api/requests/[id]/review/route";
 import { POST as recheckBureau } from "@/app/api/requests/[id]/bureau/route";
+import { POST as login } from "@/app/api/auth/login/route";
+import { POST as logout } from "@/app/api/auth/logout/route";
+import { RATE_LIMITS, resetRateLimits } from "@/server/rate-limit";
 import { createSessionToken } from "@/server/auth/session";
 import { prisma } from "@/server/db";
 import { clientProfileInput } from "../fixtures";
-import { analista, db, requestInReview, seedActors, setBudget, solicitante, solicitante2, uniqueDoc } from "./helpers";
+import { analista, analista2, db, requestInReview, seedActors, setBudget, solicitante, solicitante2, uniqueDoc } from "./helpers";
 
 beforeAll(seedActors);
 beforeEach(() => {
@@ -430,3 +433,106 @@ describe("Restricciones de la tabla de datos del cliente", () => {
   });
 });
 
+
+describe("Inicio y cierre de sesión por HTTP", () => {
+  const loginAs = (userId: string, headers: Record<string, string> = {}) =>
+    login(post("/api/auth/login", { userId }, headers));
+
+  beforeEach(resetRateLimits);
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("inicia sesión y deja una cookie httpOnly SameSite=Lax sin Secure por HTTP", async () => {
+    const res = await loginAs(solicitante.id);
+    expect(res.status).toBe(200);
+    const cookie = res.headers.get("set-cookie") ?? "";
+    expect(cookie).toMatch(/^session=/);
+    expect(cookie).toMatch(/HttpOnly/i);
+    expect(cookie).toMatch(/SameSite=lax/i);
+    expect(cookie).not.toMatch(/;\s*Secure/i);
+  });
+
+  it("en producción por HTTPS la cookie lleva Secure sin configurar COOKIE_SECURE", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const res = await login(post("/api/auth/login", { userId: solicitante.id }, { "x-forwarded-proto": "https" }));
+    expect(res.headers.get("set-cookie")).toMatch(/;\s*Secure/i);
+  });
+
+  it("en producción por HTTP (Docker en localhost) el login sigue funcionando sin Secure", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const res = await loginAs(analista.id);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("set-cookie")).not.toMatch(/;\s*Secure/i);
+  });
+
+  it("un usuario que no existe recibe 401", async () => {
+    const res = await loginAs("no-existe");
+    expect(res.status).toBe(401);
+    expect(res.headers.get("set-cookie")).toBeNull();
+  });
+
+  it("el cierre de sesión borra la cookie con los mismos atributos", async () => {
+    const res = await logout(post("/api/auth/logout"));
+    const cookie = res.headers.get("set-cookie") ?? "";
+    expect(cookie).toMatch(/^session=;/);
+    expect(cookie).toMatch(/Max-Age=0/i);
+    expect(cookie).toMatch(/HttpOnly/i);
+  });
+});
+
+describe("Límite de peticiones por HTTP", () => {
+  beforeEach(resetRateLimits);
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("el inicio de sesión responde 429 con Retry-After al pasar del límite por IP", async () => {
+    const headers = { "x-forwarded-for": "203.0.113.50" };
+    for (let i = 0; i < RATE_LIMITS.login.limit; i++) {
+      expect((await login(post("/api/auth/login", { userId: "no-existe" }, headers))).status).toBe(401);
+    }
+    const blocked = await login(post("/api/auth/login", { userId: solicitante.id }, headers));
+    expect(blocked.status).toBe(429);
+    expect(await errorCode(blocked)).toBe("RATE_LIMITED");
+    expect(Number(blocked.headers.get("retry-after"))).toBeGreaterThan(0);
+    expect(blocked.headers.get("set-cookie")).toBeNull();
+  });
+
+  it("el límite de una IP no afecta a otra", async () => {
+    for (let i = 0; i <= RATE_LIMITS.login.limit; i++) {
+      await login(post("/api/auth/login", { userId: "no-existe" }, { "x-forwarded-for": "203.0.113.51" }));
+    }
+    const other = await login(post("/api/auth/login", { userId: solicitante.id }, { "x-forwarded-for": "203.0.113.52" }));
+    expect(other.status).toBe(200);
+  });
+
+  it("aprobar y rechazar comparten el límite por analista, y otro analista no se ve afectado", async () => {
+    asUser(analista);
+    const key = () => ({ "Idempotency-Key": randomUUID() });
+    const limit = RATE_LIMITS.decision.limit;
+    for (let i = 0; i < limit; i++) {
+      const call = i % 2 === 0 ? approve : reject;
+      const res = await call(post("/x", { reason: "Motivo suficientemente largo" }, key()), ctx(randomUUID()));
+      expect(res.status).toBe(404); // la solicitud no existe, pero la petición cuenta
+    }
+    const blocked = await approve(post("/x", {}, key()), ctx(randomUUID()));
+    expect(blocked.status).toBe(429);
+    expect(blocked.headers.get("retry-after")).not.toBeNull();
+
+    asUser(analista2);
+    expect((await approve(post("/x", {}, key()), ctx(randomUUID()))).status).toBe(404);
+  });
+
+  it("las peticiones sin permiso no gastan el límite del analista", async () => {
+    asUser(solicitante); // 403 antes de contar
+    for (let i = 0; i < RATE_LIMITS.decision.limit + 5; i++) {
+      const res = await approve(post("/x", {}, { "Idempotency-Key": randomUUID() }), ctx(randomUUID()));
+      expect(res.status).toBe(403);
+    }
+  });
+
+  it("con RATE_LIMIT_DISABLED=true no se limita nada", async () => {
+    vi.stubEnv("RATE_LIMIT_DISABLED", "true");
+    const headers = { "x-forwarded-for": "203.0.113.60" };
+    for (let i = 0; i < RATE_LIMITS.login.limit + 5; i++) {
+      expect((await login(post("/api/auth/login", { userId: "no-existe" }, headers))).status).toBe(401);
+    }
+  });
+});
